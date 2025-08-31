@@ -296,9 +296,45 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
     }
   }
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
     if (selectedSource) {
-      onConnect(selectedSource, connectionConfig, connectionMode)
+      setIsConnecting(true)
+      try {
+        // If it's a file upload, process the file
+        if (selectedSource.category === 'files' && connectionConfig.file) {
+          const formData = new FormData()
+          formData.append('file', connectionConfig.file)
+          formData.append('datasetName', connectionConfig.fileName?.split('.')[0] || 'New Dataset')
+          formData.append('workspaceId', 'demo-workspace')
+          
+          // Simulate file upload API call
+          await new Promise(resolve => setTimeout(resolve, 1500))
+          
+          // Create a mock dataset response
+          const mockDataset = {
+            id: `dataset-${Date.now()}`,
+            name: connectionConfig.fileName?.split('.')[0] || 'New Dataset',
+            tables: [{
+              name: 'Table1',
+              columns: [
+                { name: 'ID', type: 'number' },
+                { name: 'Name', type: 'string' },
+                { name: 'Sales', type: 'number' },
+                { name: 'Date', type: 'date' }
+              ]
+            }]
+          }
+          
+          onConnect(selectedSource, { ...connectionConfig, dataset: mockDataset }, connectionMode)
+        } else {
+          onConnect(selectedSource, connectionConfig, connectionMode)
+        }
+      } catch (error) {
+        console.error('Connection failed:', error)
+        setConnectionStatus('error')
+      } finally {
+        setIsConnecting(false)
+      }
     }
   }
 
@@ -472,17 +508,55 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
                     )}
 
                     {selectedSource.category === 'files' && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          File Path or URL
-                        </label>
-                        <input
-                          type="text"
-                          value={connectionConfig.filePath || ''}
-                          onChange={(e) => handleConfigChange('filePath', e.target.value)}
-                          placeholder="C:\Data\file.xlsx or https://example.com/data.csv"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-3">
+                            Upload File or Enter URL
+                          </label>
+                          <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors">
+                            <input
+                              type="file"
+                              id="file-upload"
+                              className="hidden"
+                              accept={selectedSource.type === 'excel' ? '.xlsx,.xls' :
+                                      selectedSource.type === 'csv' ? '.csv,.tsv,.txt' :
+                                      selectedSource.type === 'json' ? '.json' :
+                                      selectedSource.type === 'xml' ? '.xml' :
+                                      selectedSource.type === 'parquet' ? '.parquet' : '*'}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0]
+                                if (file) {
+                                  handleConfigChange('file', file)
+                                  handleConfigChange('fileName', file.name)
+                                }
+                              }}
+                            />
+                            <label htmlFor="file-upload" className="cursor-pointer">
+                              <div className="flex flex-col items-center">
+                                <DocumentIcon className="h-12 w-12 text-gray-400 mb-4" />
+                                <span className="text-sm font-medium text-gray-700">
+                                  {connectionConfig.fileName || 'Click to upload file'}
+                                </span>
+                                <span className="text-xs text-gray-500 mt-1">
+                                  Or drag and drop your file here
+                                </span>
+                              </div>
+                            </label>
+                          </div>
+                        </div>
+                        <div className="text-center text-gray-500">- OR -</div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            File URL
+                          </label>
+                          <input
+                            type="url"
+                            value={connectionConfig.url || ''}
+                            onChange={(e) => handleConfigChange('url', e.target.value)}
+                            placeholder="https://example.com/data.csv"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
                       </div>
                     )}
 
@@ -553,10 +627,12 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
                   </button>
                   <button
                     onClick={handleConnect}
-                    disabled={connectionStatus !== 'success'}
+                    disabled={selectedSource.category === 'files' ? 
+                      (!connectionConfig.file && !connectionConfig.url) :
+                      connectionStatus !== 'success'}
                     className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Connect
+                    {isConnecting ? 'Connecting...' : 'Connect'}
                   </button>
                 </>
               )}

@@ -8,6 +8,7 @@ import ReactECharts from 'echarts-for-react'
 import { Visual, VisualType } from '@/types/report'
 import { EChartsOption } from 'echarts'
 import ChartContextMenu from './ChartContextMenu'
+import { getVisualTypeById, VISUAL_TYPE_MAPPING } from '@/config/visualTypes'
 
 interface EChartsRendererProps {
   visual: Visual
@@ -73,8 +74,23 @@ const EChartsRenderer: React.FC<EChartsRendererProps> = ({
       return getEmptyStateOption(visual.type)
     }
 
-    switch (visual.type) {
-      case 'column':
+    // Map visual type to standardized format
+    const mappedType = VISUAL_TYPE_MAPPING[visual.type] || visual.type
+    const visualConfig = getVisualTypeById(mappedType)
+    
+    // Use visual config if available, otherwise fallback to switch
+    if (visualConfig && visualConfig.getEChartsOption) {
+      try {
+        const fieldWells = visual.config?.fieldWells || {}
+        const configuredOption = visualConfig.getEChartsOption(sampleData, fieldWells, visual.config || {})
+        return { ...baseOption, ...configuredOption }
+      } catch (error) {
+        console.warn('Error generating chart option from config:', error)
+      }
+    }
+
+    switch (mappedType) {
+      case 'column-chart':
         return {
           ...baseOption,
           title: visual.config.showTitle !== false && (visual.config.titleText || visual.title) ? {
@@ -138,7 +154,7 @@ const EChartsRenderer: React.FC<EChartsRendererProps> = ({
           }]
         }
 
-      case 'line':
+      case 'line-chart':
         return {
           ...baseOption,
           title: visual.config.showTitle !== false && (visual.config.titleText || visual.title) ? {
@@ -215,7 +231,7 @@ const EChartsRenderer: React.FC<EChartsRendererProps> = ({
           }]
         }
 
-      case 'pie':
+      case 'pie-chart':
         return {
           ...baseOption,
           tooltip: {
@@ -254,7 +270,7 @@ const EChartsRenderer: React.FC<EChartsRendererProps> = ({
           }]
         }
 
-      case 'scatter':
+      case 'scatter-plot':
         return {
           ...baseOption,
           xAxis: {
@@ -293,7 +309,7 @@ const EChartsRenderer: React.FC<EChartsRendererProps> = ({
           }]
         }
 
-      case 'area':
+      case 'area-chart':
         return {
           ...baseOption,
           xAxis: {
@@ -345,6 +361,230 @@ const EChartsRenderer: React.FC<EChartsRendererProps> = ({
               color: '#3b82f6'
             }
           }]
+        }
+
+      case 'bar-chart':
+        return {
+          ...baseOption,
+          title: visual.config.showTitle !== false && (visual.config.titleText || visual.title) ? {
+            text: visual.config.titleText || visual.title,
+            textStyle: {
+              color: visual.config.titleColor || '#374151',
+              fontSize: visual.config.titleFontSize || 16,
+              fontWeight: 'normal'
+            },
+            left: 'center',
+            top: '10px'
+          } : undefined,
+          xAxis: {
+            show: visual.config.xAxisShow !== false,
+            type: 'value',
+            name: visual.config.xAxisTitle,
+            nameTextStyle: {
+              color: '#6b7280',
+              fontSize: 12
+            },
+            axisLabel: {
+              color: '#6b7280',
+              fontSize: 11
+            },
+            axisLine: {
+              lineStyle: { color: '#e5e7eb' }
+            },
+            splitLine: {
+              lineStyle: { color: '#f3f4f6' }
+            }
+          },
+          yAxis: {
+            show: visual.config.yAxisShow !== false,
+            type: 'category',
+            data: sampleData.map(d => d.category || d.name),
+            name: visual.config.yAxisTitle,
+            nameTextStyle: {
+              color: '#6b7280',
+              fontSize: 12
+            },
+            axisLabel: {
+              color: '#6b7280',
+              fontSize: 11
+            },
+            axisLine: {
+              lineStyle: { color: '#e5e7eb' }
+            }
+          },
+          series: [{
+            data: sampleData.map(d => d.value),
+            type: 'bar',
+            itemStyle: {
+              color: visual.config.colors?.[0] || '#3b82f6',
+              borderRadius: [0, 4, 4, 0]
+            },
+            emphasis: {
+              itemStyle: {
+                color: visual.config.colors?.[1] || '#2563eb'
+              }
+            }
+          }]
+        }
+
+      case 'donut-chart':
+        return {
+          ...baseOption,
+          tooltip: {
+            ...baseOption.tooltip,
+            trigger: 'item',
+            formatter: '{a} <br/>{b}: {c} ({d}%)'
+          },
+          legend: {
+            orient: 'vertical',
+            left: 'left',
+            textStyle: {
+              color: '#6b7280',
+              fontSize: 11
+            }
+          },
+          series: [{
+            name: visual.title || 'Data',
+            type: 'pie',
+            radius: ['40%', '70%'],
+            data: sampleData.map(d => ({
+              value: d.value,
+              name: d.category || d.name
+            })),
+            emphasis: {
+              itemStyle: {
+                shadowBlur: 10,
+                shadowOffsetX: 0,
+                shadowColor: 'rgba(0, 0, 0, 0.5)'
+              }
+            },
+            itemStyle: {
+              borderRadius: 4,
+              borderColor: '#fff',
+              borderWidth: 2
+            }
+          }]
+        }
+
+      case 'stacked-column-chart':
+        return {
+          ...baseOption,
+          title: visual.config.showTitle !== false && (visual.config.titleText || visual.title) ? {
+            text: visual.config.titleText || visual.title,
+            textStyle: {
+              color: visual.config.titleColor || '#374151',
+              fontSize: visual.config.titleFontSize || 16,
+              fontWeight: 'normal'
+            },
+            left: 'center',
+            top: '10px'
+          } : undefined,
+          xAxis: {
+            show: visual.config.xAxisShow !== false,
+            type: 'category',
+            data: sampleData.map(d => d.category || d.name),
+            name: visual.config.xAxisTitle,
+            axisLabel: {
+              color: '#6b7280',
+              fontSize: 11
+            },
+            axisLine: {
+              lineStyle: { color: '#e5e7eb' }
+            }
+          },
+          yAxis: {
+            show: visual.config.yAxisShow !== false,
+            type: 'value',
+            name: visual.config.yAxisTitle,
+            axisLabel: {
+              color: '#6b7280',
+              fontSize: 11
+            },
+            axisLine: {
+              lineStyle: { color: '#e5e7eb' }
+            },
+            splitLine: {
+              lineStyle: { color: '#f3f4f6' }
+            }
+          },
+          series: [
+            {
+              name: 'Series 1',
+              data: sampleData.map(d => d.value),
+              type: 'bar',
+              stack: 'total',
+              itemStyle: {
+                color: visual.config.colors?.[0] || '#3b82f6'
+              }
+            },
+            {
+              name: 'Series 2',
+              data: sampleData.map(d => d.value * 0.7),
+              type: 'bar',
+              stack: 'total',
+              itemStyle: {
+                color: visual.config.colors?.[1] || '#ef4444'
+              }
+            }
+          ]
+        }
+
+      case 'gauge-chart':
+        return {
+          ...baseOption,
+          series: [{
+            type: 'gauge',
+            min: 0,
+            max: 100,
+            data: [{
+              value: sampleData[0]?.value || 75,
+              name: 'Progress'
+            }],
+            progress: {
+              show: true
+            },
+            detail: {
+              valueAnimation: true,
+              formatter: '{value}%'
+            }
+          }]
+        }
+
+      case 'funnel-chart':
+        return {
+          ...baseOption,
+          tooltip: {
+            trigger: 'item',
+            formatter: '{b}: {c}'
+          },
+          series: [{
+            type: 'funnel',
+            data: sampleData.map(d => ({
+              name: d.category || d.name,
+              value: d.value
+            })),
+            sort: 'descending',
+            gap: 2,
+            label: {
+              show: true,
+              position: 'inside'
+            }
+          }]
+        }
+
+      case 'card':
+        // Card is handled separately below
+        return {
+          ...baseOption,
+          title: {
+            text: 'Card View',
+            left: 'center',
+            textStyle: {
+              color: '#374151',
+              fontSize: 14,
+              fontWeight: 'normal'
+            }
+          }
         }
 
       case 'table':
@@ -494,14 +734,32 @@ const EChartsRenderer: React.FC<EChartsRendererProps> = ({
     }
   }
 
-  // Special handling for table type
-  if (visual.type === 'table') {
+  // Special handling for special visual types
+  const mappedType = VISUAL_TYPE_MAPPING[visual.type] || visual.type
+  
+  if (mappedType === 'table') {
     return (
       <div className={`flex items-center justify-center h-full ${className}`}>
         <div className="text-center text-gray-500">
           <div className="text-2xl mb-2">📋</div>
           <div className="text-sm">Table visualization</div>
           <div className="text-xs mt-1">Drag fields to configure</div>
+        </div>
+      </div>
+    )
+  }
+  
+  if (mappedType === 'card') {
+    const value = data.length > 0 ? data[0]?.value : (generateSampleData(visual.type)[0]?.value || 0)
+    return (
+      <div className={`flex items-center justify-center h-full ${className}`}>
+        <div className="text-center">
+          <div className="text-4xl font-bold text-blue-600 mb-2">
+            {typeof value === 'number' ? value.toLocaleString() : value}
+          </div>
+          <div className="text-sm text-gray-500">
+            {visual.config?.name || visual.title || 'Card Value'}
+          </div>
         </div>
       </div>
     )
@@ -545,6 +803,9 @@ const generateSampleData = (type: VisualType) => {
   
   switch (type) {
     case 'pie':
+    case 'pie-chart':
+    case 'donut':
+    case 'donut-chart':
       return [
         { name: 'Desktop', value: 45 },
         { name: 'Mobile', value: 35 },
@@ -552,6 +813,7 @@ const generateSampleData = (type: VisualType) => {
       ]
     
     case 'scatter':
+    case 'scatter-plot':
       return Array.from({ length: 20 }, (_, i) => ({
         x: Math.random() * 100,
         y: Math.random() * 100,
@@ -614,37 +876,58 @@ const getEmptyStateOption = (type: VisualType): EChartsOption => {
 
 // Get empty state text based on chart type
 const getEmptyStateText = (type: VisualType) => {
-  switch (type) {
-    case 'column':
-    case 'bar':
+  const mappedType = VISUAL_TYPE_MAPPING[type] || type
+  switch (mappedType) {
+    case 'column-chart':
+    case 'bar-chart':
+    case 'stacked-column-chart':
       return {
         icon: '📊',
         title: 'No data to display',
         subtitle: 'Drag fields to configure this chart'
       }
-    case 'line':
+    case 'line-chart':
       return {
         icon: '📈',
         title: 'No data to display',
         subtitle: 'Add fields to create a line chart'
       }
-    case 'pie':
+    case 'pie-chart':
+    case 'donut-chart':
       return {
         icon: '🥧',
         title: 'No data to display', 
         subtitle: 'Add values to create a pie chart'
       }
-    case 'scatter':
+    case 'scatter-plot':
       return {
         icon: '💎',
         title: 'No data to display',
         subtitle: 'Add X and Y fields for scatter plot'
       }
-    case 'area':
+    case 'area-chart':
       return {
         icon: '📉',
         title: 'No data to display',
         subtitle: 'Add fields to create an area chart'
+      }
+    case 'gauge-chart':
+      return {
+        icon: '🌡️',
+        title: 'No data to display',
+        subtitle: 'Add a value for the gauge'
+      }
+    case 'funnel-chart':
+      return {
+        icon: '🍷',
+        title: 'No data to display',
+        subtitle: 'Add categories and values'
+      }
+    case 'card':
+      return {
+        icon: '🃏',
+        title: 'No data to display',
+        subtitle: 'Add a measure to show'
       }
     case 'table':
       return {

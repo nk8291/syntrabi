@@ -67,7 +67,14 @@ const PowerBIFieldsPanel: React.FC<PowerBIFieldsPanelProps> = ({
   const loadDatasets = async () => {
     try {
       setLoading(true)
-      const response = await datasetService.getDatasets(workspaceId)
+      let response = []
+      try {
+        response = await datasetService.getDatasets(workspaceId)
+      } catch (error) {
+        console.warn('Failed to load real datasets, using sample data:', error)
+        // Use sample datasets if service fails
+        response = getSampleDatasets()
+      }
       
       const datasetTrees: DatasetTree[] = response.map((dataset: Dataset) => ({
         id: dataset.id,
@@ -80,6 +87,8 @@ const PowerBIFieldsPanel: React.FC<PowerBIFieldsPanelProps> = ({
       setDatasets(datasetTrees)
     } catch (error) {
       console.error('Failed to load datasets:', error)
+      // Fallback to sample data
+      setDatasets(getSampleDatasetTrees())
     } finally {
       setLoading(false)
     }
@@ -448,5 +457,112 @@ const TableTreeNode: React.FC<{
     </div>
   )
 }
+
+// Sample datasets for demo purposes
+const getSampleDatasets = (): Dataset[] => [
+  {
+    id: 'sample-sales-dataset',
+    name: 'Sales & Marketing Dataset',
+    description: 'Sample sales and marketing data for demonstration',
+    type: 'sample',
+    workspace_id: 'demo-workspace',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    file_path: '',
+    file_size: 0,
+    schema_json: {
+      columns: [
+        { name: 'Date', type: 'date', description: 'Transaction date' },
+        { name: 'Product_ID', type: 'string', description: 'Unique product identifier' },
+        { name: 'Product_Name', type: 'string', description: 'Name of the product' },
+        { name: 'Category', type: 'string', description: 'Product category' },
+        { name: 'Sales_Amount', type: 'number', description: 'Total sales amount' },
+        { name: 'Quantity', type: 'number', description: 'Units sold' },
+        { name: 'Customer_ID', type: 'string', description: 'Customer identifier' },
+        { name: 'Region', type: 'string', description: 'Sales region' },
+        { name: 'Sales_Person', type: 'string', description: 'Salesperson name' },
+        { name: 'Profit_Margin', type: 'number', description: 'Profit margin percentage' }
+      ]
+    }
+  },
+  {
+    id: 'sample-customer-dataset',
+    name: 'Customer Demographics',
+    description: 'Customer demographic and behavioral data',
+    type: 'sample',
+    workspace_id: 'demo-workspace',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    file_path: '',
+    file_size: 0,
+    schema_json: {
+      columns: [
+        { name: 'Customer_ID', type: 'string', description: 'Unique customer identifier' },
+        { name: 'Customer_Name', type: 'string', description: 'Customer full name' },
+        { name: 'Age', type: 'number', description: 'Customer age' },
+        { name: 'Gender', type: 'string', description: 'Customer gender' },
+        { name: 'City', type: 'string', description: 'Customer city' },
+        { name: 'State', type: 'string', description: 'Customer state' },
+        { name: 'Country', type: 'string', description: 'Customer country' },
+        { name: 'Annual_Income', type: 'number', description: 'Annual income in USD' },
+        { name: 'Loyalty_Score', type: 'number', description: 'Customer loyalty score (1-10)' },
+        { name: 'Join_Date', type: 'date', description: 'Customer registration date' }
+      ]
+    }
+  }
+]
+
+const getSampleDatasetTrees = (): DatasetTree[] => [
+  {
+    id: 'sample-sales-dataset',
+    name: 'Sales & Marketing Dataset',
+    displayName: 'Sales & Marketing Dataset',
+    expanded: true,
+    tables: [{
+      id: 'sales-table',
+      name: 'Sales Data',
+      displayName: 'Sales Data',
+      expanded: true,
+      isFactTable: true,
+      fields: [
+        { id: 'date-field', name: 'Date', type: 'date', table: 'Sales Data', isVisible: true, aggregation: 'none' },
+        { id: 'product-id-field', name: 'Product_ID', type: 'string', table: 'Sales Data', isVisible: true, isKey: true, aggregation: 'count' },
+        { id: 'product-name-field', name: 'Product_Name', type: 'string', table: 'Sales Data', isVisible: true, aggregation: 'count' },
+        { id: 'category-field', name: 'Category', type: 'string', table: 'Sales Data', isVisible: true, aggregation: 'count' },
+        { id: 'sales-amount-field', name: 'Sales_Amount', type: 'number', table: 'Sales Data', isVisible: true, aggregation: 'sum' },
+        { id: 'quantity-field', name: 'Quantity', type: 'number', table: 'Sales Data', isVisible: true, aggregation: 'sum' },
+        { id: 'customer-id-field', name: 'Customer_ID', type: 'string', table: 'Sales Data', isVisible: true, isKey: true, aggregation: 'count' },
+        { id: 'region-field', name: 'Region', type: 'string', table: 'Sales Data', isVisible: true, aggregation: 'count' },
+        { id: 'salesperson-field', name: 'Sales_Person', type: 'string', table: 'Sales Data', isVisible: true, aggregation: 'count' },
+        { id: 'profit-margin-field', name: 'Profit_Margin', type: 'number', table: 'Sales Data', isVisible: true, aggregation: 'avg' }
+      ]
+    }]
+  },
+  {
+    id: 'sample-customer-dataset',
+    name: 'Customer Demographics',
+    displayName: 'Customer Demographics',
+    expanded: true,
+    tables: [{
+      id: 'customer-table',
+      name: 'Customers',
+      displayName: 'Customers', 
+      expanded: true,
+      isFactTable: false,
+      fields: [
+        { id: 'cust-id-field', name: 'Customer_ID', type: 'string', table: 'Customers', isVisible: true, isKey: true, aggregation: 'count' },
+        { id: 'cust-name-field', name: 'Customer_Name', type: 'string', table: 'Customers', isVisible: true, aggregation: 'count' },
+        { id: 'age-field', name: 'Age', type: 'number', table: 'Customers', isVisible: true, aggregation: 'avg' },
+        { id: 'gender-field', name: 'Gender', type: 'string', table: 'Customers', isVisible: true, aggregation: 'count' },
+        { id: 'city-field', name: 'City', type: 'string', table: 'Customers', isVisible: true, aggregation: 'count' },
+        { id: 'state-field', name: 'State', type: 'string', table: 'Customers', isVisible: true, aggregation: 'count' },
+        { id: 'country-field', name: 'Country', type: 'string', table: 'Customers', isVisible: true, aggregation: 'count' },
+        { id: 'income-field', name: 'Annual_Income', type: 'number', table: 'Customers', isVisible: true, aggregation: 'avg' },
+        { id: 'loyalty-field', name: 'Loyalty_Score', type: 'number', table: 'Customers', isVisible: true, aggregation: 'avg' },
+        { id: 'join-date-field', name: 'Join_Date', type: 'date', table: 'Customers', isVisible: true, aggregation: 'none' }
+      ]
+    }]
+  }
+]
 
 export default PowerBIFieldsPanel

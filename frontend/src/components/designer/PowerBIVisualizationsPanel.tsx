@@ -33,17 +33,18 @@ import {
   ChevronDownIcon
 } from '@heroicons/react/24/outline'
 import { Visual, VisualType } from '@/types/report'
+import { VISUAL_TYPE_MAPPING, getVisualTypeById } from '@/config/visualTypes'
 
 interface PowerBIVisualizationsPanelProps {
-  activePanel: 'visualizations' | 'format' | 'analytics'
+  activePanel?: 'visualizations' | 'format' | 'analytics'
   selectedVisual: Visual | null
   onAddVisual: (type: VisualType, position?: { x: number, y: number }) => void
   onUpdateVisual: (visualId: string, updates: Partial<Visual>) => void
-  onFieldDrop: (field: any, wellType: string, visualId?: string) => void
+  onFieldDrop?: (field: any, wellType: string, visualId?: string) => void
 }
 
 const PowerBIVisualizationsPanel: React.FC<PowerBIVisualizationsPanelProps> = ({
-  activePanel,
+  activePanel = 'visualizations',
   selectedVisual,
   onAddVisual,
   onUpdateVisual,
@@ -51,29 +52,25 @@ const PowerBIVisualizationsPanel: React.FC<PowerBIVisualizationsPanelProps> = ({
 }) => {
   // Basic Charts
   const basicCharts = [
-    { type: 'column' as VisualType, icon: ChartBarIcon, label: 'Clustered column chart', description: 'Compare values across categories' },
-    { type: 'stacked_column' as VisualType, icon: ChartBarIcon, label: 'Stacked column chart', description: 'Compare parts of a whole across categories' },
-    { type: '100_stacked_column' as VisualType, icon: ChartBarIcon, label: '100% Stacked column chart', description: 'Compare percentage breakdown across categories' },
-    { type: 'clustered_bar' as VisualType, icon: ChartBarSquareIcon, label: 'Clustered bar chart', description: 'Compare values across categories horizontally' },
-    { type: 'stacked_bar' as VisualType, icon: ChartBarSquareIcon, label: 'Stacked bar chart', description: 'Compare parts of a whole across categories horizontally' },
-    { type: '100_stacked_bar' as VisualType, icon: ChartBarSquareIcon, label: '100% Stacked bar chart', description: 'Compare percentage breakdown across categories horizontally' },
-    { type: 'line' as VisualType, icon: PresentationChartLineIcon, label: 'Line chart', description: 'Show trends over time or ordered categories' },
-    { type: 'area' as VisualType, icon: CircleStackIcon, label: 'Area chart', description: 'Like line chart with filled areas' },
-    { type: 'stacked_area' as VisualType, icon: CircleStackIcon, label: 'Stacked area chart', description: 'Show trends with multiple series stacked' },
-    { type: '100_stacked_area' as VisualType, icon: CircleStackIcon, label: '100% Stacked area chart', description: 'Show trends as percentage breakdown' },
-    { type: 'combo' as VisualType, icon: ArrowTrendingUpIcon, label: 'Line and clustered column chart', description: 'Combine line and column charts' },
-    { type: 'ribbon' as VisualType, icon: RectangleGroupIcon, label: 'Ribbon chart', description: 'Show ranking changes over time' }
+    { type: 'column-chart' as VisualType, icon: ChartBarIcon, label: 'Clustered column chart', description: 'Compare values across categories' },
+    { type: 'stacked-column-chart' as VisualType, icon: ChartBarIcon, label: 'Stacked column chart', description: 'Compare parts of a whole across categories' },
+    { type: 'bar-chart' as VisualType, icon: ChartBarSquareIcon, label: 'Clustered bar chart', description: 'Compare values across categories horizontally' },
+    { type: 'line-chart' as VisualType, icon: PresentationChartLineIcon, label: 'Line chart', description: 'Show trends over time or ordered categories' },
+    { type: 'area-chart' as VisualType, icon: CircleStackIcon, label: 'Area chart', description: 'Like line chart with filled areas' },
+    { type: 'waterfall' as VisualType, icon: FunnelIcon, label: 'Waterfall chart', description: 'Show cumulative effect of sequential changes' },
+    { type: 'funnel-chart' as VisualType, icon: FunnelIcon, label: 'Funnel chart', description: 'Show values at different stages of a process' },
+    { type: 'combo' as VisualType, icon: ArrowTrendingUpIcon, label: 'Line and clustered column chart', description: 'Combine line and column charts' }
   ]
 
   // Pie Charts
   const pieCharts = [
-    { type: 'pie' as VisualType, icon: ChartPieIcon, label: 'Pie chart', description: 'Show proportions of a whole' },
-    { type: 'donut' as VisualType, icon: ChartPieIcon, label: 'Donut chart', description: 'Like pie chart with hollow center' }
+    { type: 'pie-chart' as VisualType, icon: ChartPieIcon, label: 'Pie chart', description: 'Show proportions of a whole' },
+    { type: 'donut-chart' as VisualType, icon: ChartPieIcon, label: 'Donut chart', description: 'Like pie chart with hollow center' }
   ]
 
   // Scatter Charts
   const scatterCharts = [
-    { type: 'scatter' as VisualType, icon: CircleStackIcon, label: 'Scatter chart', description: 'Show relationships between two measures' },
+    { type: 'scatter-plot' as VisualType, icon: CircleStackIcon, label: 'Scatter chart', description: 'Show relationships between two measures' },
     { type: 'bubble' as VisualType, icon: CircleStackIcon, label: 'Bubble chart', description: 'Like scatter chart with third measure for size' }
   ]
 
@@ -85,7 +82,7 @@ const PowerBIVisualizationsPanel: React.FC<PowerBIVisualizationsPanelProps> = ({
 
   // Gauge Charts
   const gaugeCharts = [
-    { type: 'gauge' as VisualType, icon: ClockIcon, label: 'Gauge', description: 'Show progress toward a goal' },
+    { type: 'gauge-chart' as VisualType, icon: ClockIcon, label: 'Gauge', description: 'Show progress toward a goal' },
     { type: 'card' as VisualType, icon: CreditCardIcon, label: 'Card', description: 'Display a single important number' },
     { type: 'multi_row_card' as VisualType, icon: CreditCardIcon, label: 'Multi-row card', description: 'Display multiple important numbers' },
     { type: 'kpi' as VisualType, icon: ArrowTrendingUpIcon, label: 'KPI', description: 'Show key performance indicators with trends' }
@@ -132,16 +129,25 @@ const PowerBIVisualizationsPanel: React.FC<PowerBIVisualizationsPanelProps> = ({
     <div className="mb-4">
       <h5 className="text-xs font-medium text-gray-600 mb-2 uppercase tracking-wider">{title}</h5>
       <div className="grid grid-cols-4 gap-1">
-        {visuals.map((visual) => (
-          <button
-            key={visual.type}
-            onClick={() => onAddVisual(visual.type)}
-            className="p-2 border border-gray-200 rounded hover:border-blue-500 hover:bg-blue-50 transition-colors group relative"
-            title={visual.description}
-          >
-            <visual.icon className="h-6 w-6 mx-auto text-gray-600 group-hover:text-blue-600" />
-          </button>
-        ))}
+        {visuals.map((visual) => {
+          const visualConfig = getVisualTypeById(visual.type)
+          return (
+            <button
+              key={visual.type}
+              onClick={() => onAddVisual(visual.type)}
+              className="p-2 border border-gray-200 rounded hover:border-blue-500 hover:bg-blue-50 transition-colors group relative"
+              title={visual.description}
+            >
+              <visual.icon className="h-6 w-6 mx-auto text-gray-600 group-hover:text-blue-600" />
+              {/* Show visual type icon from config if available */}
+              {visualConfig && (
+                <div className="absolute -top-1 -right-1 text-xs bg-blue-100 rounded-full w-4 h-4 flex items-center justify-center">
+                  {visualConfig.icon}
+                </div>
+              )}
+            </button>
+          )
+        })}
       </div>
     </div>
   )

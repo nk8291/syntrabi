@@ -564,6 +564,284 @@ export const VISUAL_TYPES: VisualConfig[] = [
       },
     },
     getEChartsOption: () => createEmptyOption('Card visualization - drop a measure to configure')
+  },
+
+  // DONUT CHART  
+  {
+    id: 'donut-chart',
+    name: 'Donut Chart',
+    category: 'chart',
+    icon: '🍩',
+    description: 'Show parts of a whole with center space',
+    chartType: 'pie',
+    fieldWells: {
+      legend: { 
+        label: 'Legend', 
+        max: 1, 
+        required: true, 
+        accepts: ['dimension'], 
+        fields: [] 
+      },
+      values: { 
+        label: 'Values', 
+        max: 1, 
+        required: true, 
+        accepts: ['measure'], 
+        fields: [] 
+      },
+    },
+    properties: {
+      showTitle: { type: 'boolean', label: 'Show Title', default: true },
+      title: { type: 'text', label: 'Chart Title', default: '' },
+      showLabels: { type: 'boolean', label: 'Show Labels', default: true },
+      showPercentages: { type: 'boolean', label: 'Show Percentages', default: true }
+    },
+    getEChartsOption: (data, fieldWells, config) => {
+      const legendField = fieldWells.legend?.fields[0]
+      const valueField = fieldWells.values?.fields[0]
+      
+      if (!legendField || !valueField) {
+        return createEmptyOption()
+      }
+
+      return {
+        title: config.showTitle !== false ? {
+          text: config.title || '',
+        } : undefined,
+        tooltip: {
+          trigger: 'item',
+          formatter: config.showPercentages !== false ? '{b}: {c} ({d}%)' : '{b}: {c}'
+        },
+        series: [{
+          type: 'pie',
+          radius: ['40%', '70%'],
+          data: data.map(d => ({
+            name: d[legendField.name] || '',
+            value: d[valueField.name] || 0
+          })),
+          label: {
+            show: config.showLabels !== false,
+            formatter: config.showPercentages !== false ? '{b}: {d}%' : '{b}'
+          }
+        }]
+      }
+    }
+  },
+
+  // STACKED COLUMN CHART
+  {
+    id: 'stacked-column-chart',
+    name: 'Stacked Column Chart',
+    category: 'chart',
+    icon: '📊',
+    description: 'Compare totals and parts across categories',
+    chartType: 'bar',
+    fieldWells: {
+      xAxis: { 
+        label: 'X-Axis', 
+        max: 1, 
+        required: true, 
+        accepts: ['dimension'], 
+        fields: [] 
+      },
+      yAxis: { 
+        label: 'Y-Axis', 
+        max: 10, 
+        required: true, 
+        accepts: ['measure'], 
+        fields: [] 
+      },
+      legend: { 
+        label: 'Legend', 
+        max: 1, 
+        required: true, 
+        accepts: ['dimension'], 
+        fields: [] 
+      },
+    },
+    properties: {
+      showTitle: { type: 'boolean', label: 'Show Title', default: true },
+      title: { type: 'text', label: 'Chart Title', default: '' },
+      showAxes: { type: 'boolean', label: 'Show Axes', default: true },
+    },
+    getEChartsOption: (data, fieldWells, config) => {
+      const xAxisField = fieldWells.xAxis?.fields[0]
+      const yAxisField = fieldWells.yAxis?.fields[0] 
+      const legendField = fieldWells.legend?.fields[0]
+      
+      if (!xAxisField || !yAxisField || !legendField) {
+        return createEmptyOption()
+      }
+      
+      const legendValues = [...new Set(data.map(d => d[legendField.name]))]
+      const series = legendValues.map(legendValue => ({
+        name: legendValue,
+        type: 'bar',
+        stack: 'total',
+        data: data
+          .filter(d => d[legendField.name] === legendValue)
+          .map(d => d[yAxisField.name] || 0)
+      }))
+
+      return {
+        title: config.showTitle !== false ? {
+          text: config.title || '',
+        } : undefined,
+        tooltip: { trigger: 'axis' },
+        legend: { data: legendValues },
+        xAxis: {
+          type: 'category',
+          data: [...new Set(data.map(d => d[xAxisField.name] || ''))],
+          name: xAxisField.name,
+          show: config.showAxes !== false
+        },
+        yAxis: {
+          type: 'value',
+          name: yAxisField.name,
+          show: config.showAxes !== false
+        },
+        series
+      }
+    }
+  },
+
+  // GAUGE CHART
+  {
+    id: 'gauge-chart',
+    name: 'Gauge',
+    category: 'gauge',
+    icon: '🌡️',
+    description: 'Display progress toward a goal',
+    chartType: 'gauge',
+    fieldWells: {
+      values: { 
+        label: 'Value', 
+        max: 1, 
+        required: true, 
+        accepts: ['measure'], 
+        fields: [] 
+      },
+      target: { 
+        label: 'Target', 
+        max: 1, 
+        required: false, 
+        accepts: ['measure'], 
+        fields: [] 
+      }
+    },
+    properties: {
+      showTitle: { type: 'boolean', label: 'Show Title', default: true },
+      title: { type: 'text', label: 'Gauge Title', default: '' },
+      minValue: { type: 'number', label: 'Min Value', default: 0 },
+      maxValue: { type: 'number', label: 'Max Value', default: 100 },
+    },
+    getEChartsOption: (data, fieldWells, config) => {
+      const valueField = fieldWells.values?.fields[0]
+      const targetField = fieldWells.target?.fields[0]
+      
+      if (!valueField || data.length === 0) {
+        return createEmptyOption()
+      }
+
+      const value = data[0][valueField.name] || 0
+      const target = targetField ? data[0][targetField.name] : config.maxValue || 100
+
+      return {
+        title: config.showTitle !== false ? {
+          text: config.title || '',
+        } : undefined,
+        series: [{
+          type: 'gauge',
+          min: config.minValue || 0,
+          max: target || config.maxValue || 100,
+          data: [{
+            value: value,
+            name: valueField.name
+          }],
+          progress: {
+            show: true
+          },
+          detail: {
+            valueAnimation: true,
+            formatter: '{value}'
+          }
+        }]
+      }
+    }
+  },
+
+  // FUNNEL CHART
+  {
+    id: 'funnel-chart',
+    name: 'Funnel Chart',
+    category: 'chart',
+    icon: '🍷',
+    description: 'Show stages in a linear process',
+    chartType: 'funnel',
+    fieldWells: {
+      category: { 
+        label: 'Category', 
+        max: 1, 
+        required: true, 
+        accepts: ['dimension'], 
+        fields: [] 
+      },
+      values: { 
+        label: 'Values', 
+        max: 1, 
+        required: true, 
+        accepts: ['measure'], 
+        fields: [] 
+      },
+    },
+    properties: {
+      showTitle: { type: 'boolean', label: 'Show Title', default: true },
+      title: { type: 'text', label: 'Chart Title', default: '' },
+      sort: { 
+        type: 'select', 
+        label: 'Sort', 
+        default: 'descending',
+        options: ['ascending', 'descending', 'none']
+      }
+    },
+    getEChartsOption: (data, fieldWells, config) => {
+      const categoryField = fieldWells.category?.fields[0]
+      const valueField = fieldWells.values?.fields[0]
+      
+      if (!categoryField || !valueField) {
+        return createEmptyOption()
+      }
+
+      let sortedData = [...data]
+      if (config.sort === 'ascending') {
+        sortedData.sort((a, b) => a[valueField.name] - b[valueField.name])
+      } else if (config.sort === 'descending') {
+        sortedData.sort((a, b) => b[valueField.name] - a[valueField.name])
+      }
+
+      return {
+        title: config.showTitle !== false ? {
+          text: config.title || '',
+        } : undefined,
+        tooltip: {
+          trigger: 'item',
+          formatter: '{b}: {c}'
+        },
+        series: [{
+          type: 'funnel',
+          data: sortedData.map(d => ({
+            name: d[categoryField.name] || '',
+            value: d[valueField.name] || 0
+          })),
+          sort: config.sort === 'none' ? 'none' : config.sort,
+          gap: 2,
+          label: {
+            show: true,
+            position: 'inside'
+          }
+        }]
+      }
+    }
   }
 ]
 
@@ -582,3 +860,26 @@ export const VISUAL_CATEGORIES = [
   { id: 'map', name: 'Maps', icon: '🗺️' },
   { id: 'custom', name: 'Custom', icon: '🔧' }
 ]
+
+// Map visual type IDs to standardized names for consistency
+export const VISUAL_TYPE_MAPPING: { [key: string]: string } = {
+  'column': 'column-chart',
+  'bar': 'bar-chart', 
+  'line': 'line-chart',
+  'pie': 'pie-chart',
+  'area': 'area-chart',
+  'scatter': 'scatter-plot',
+  'table': 'table',
+  'card': 'card',
+  'donut': 'donut-chart',
+  'stacked-column': 'stacked-column-chart',
+  'gauge': 'gauge-chart',
+  'funnel': 'funnel-chart',
+  // Additional mappings
+  'column-chart': 'column-chart',
+  'bar-chart': 'bar-chart',
+  'line-chart': 'line-chart',
+  'pie-chart': 'pie-chart',
+  'area-chart': 'area-chart',
+  'scatter-plot': 'scatter-plot'
+}
