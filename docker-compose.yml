@@ -1,0 +1,224 @@
+# PowerBI Web Replica - Docker Compose Configuration
+# Provides complete local development environment with all services
+
+version: '3.8'
+
+services:
+  # PostgreSQL database for metadata storage
+  postgres:
+    image: postgres:15-alpine
+    container_name: powerbi_postgres
+    environment:
+      POSTGRES_DB: powerbi
+      POSTGRES_USER: powerbi
+      POSTGRES_PASSWORD: powerbi123
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U powerbi"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - powerbi_network
+
+  # Redis for caching and session storage  
+  redis:
+    image: redis:7-alpine
+    container_name: powerbi_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - powerbi_network
+
+  # MinIO S3-compatible object storage
+  minio:
+    image: minio/minio:latest
+    container_name: powerbi_minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - powerbi_network
+
+  # FastAPI Backend Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: powerbi_backend
+    environment:
+      # Database
+      DATABASE_URL: postgresql://powerbi:powerbi123@postgres:5432/powerbi
+      REDIS_URL: redis://redis:6379
+      
+      # Authentication
+      JWT_SECRET_KEY: dev-secret-key-change-in-production
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRE_MINUTES: 1440
+      
+      # Object Storage
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: powerbi-data
+      
+      # Application
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+      CORS_ORIGINS: http://localhost:3000,http://localhost:5173
+      
+      # External services
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      MINIO_HOST: minio
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - backend_uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - powerbi_network
+
+  # React Frontend Service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: powerbi_frontend
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+      VITE_WS_URL: ws://localhost:8000/ws
+      VITE_ENVIRONMENT: development
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      - backend
+    command: npm run dev -- --host 0.0.0.0 --port 3000
+    networks:
+      - powerbi_network
+
+  # Nginx reverse proxy (optional for production-like setup)
+  nginx:
+    image: nginx:alpine
+    container_name: powerbi_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - powerbi_network
+    profiles:
+      - production
+
+  # Celery worker for background tasks
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: powerbi_worker
+    environment:
+      DATABASE_URL: postgresql://powerbi:powerbi123@postgres:5432/powerbi
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: powerbi-data
+      ENVIRONMENT: development
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    command: celery -A app.worker worker --loglevel=info
+    networks:
+      - powerbi_network
+    profiles:
+      - workers
+
+  # Celery beat scheduler
+  scheduler:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: powerbi_scheduler
+    environment:
+      DATABASE_URL: postgresql://powerbi:powerbi123@postgres:5432/powerbi
+      REDIS_URL: redis://redis:6379
+      ENVIRONMENT: development
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - postgres
+      - redis
+    command: celery -A app.worker beat --loglevel=info
+    networks:
+      - powerbi_network
+    profiles:
+      - workers
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+  backend_uploads:
+    driver: local
+  frontend_node_modules:
+    driver: local
+
+networks:
+  powerbi_network:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16

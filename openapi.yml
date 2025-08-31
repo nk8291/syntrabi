@@ -1,0 +1,930 @@
+openapi: 3.0.3
+info:
+  title: PowerBI Web Replica API
+  description: |
+    A comprehensive API for a web-based data visualization platform that recreates 
+    Power BI Desktop functionality with select Tableau features.
+    
+    ## Features
+    - Interactive report and dashboard design
+    - Multiple data source connectors (CSV, PostgreSQL, etc.)
+    - Drag-and-drop visualization builder
+    - Real-time chart rendering with Vega-Lite
+    - Offline mode support with IndexedDB
+    - Export capabilities (PNG, PDF)
+    - Role-based access control
+    
+  version: 1.0.0
+  contact:
+    name: PowerBI Web Replica
+    url: https://github.com/powerbi-web-replica
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8000
+    description: Development server
+  - url: https://api.powerbi-replica.com
+    description: Production server
+
+security:
+  - BearerAuth: []
+
+paths:
+  # Health Check
+  /health:
+    get:
+      summary: Health check endpoint
+      tags: [Health]
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  timestamp:
+                    type: string
+                    format: date-time
+                  version:
+                    type: string
+                    example: 1.0.0
+
+  # Authentication Endpoints
+  /api/auth/login:
+    post:
+      summary: Authenticate user
+      tags: [Authentication]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: admin@example.com
+                password:
+                  type: string
+                  format: password
+                  example: admin123
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                    example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  token_type:
+                    type: string
+                    example: bearer
+                  expires_in:
+                    type: integer
+                    example: 86400
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Invalid credentials
+
+  /api/auth/me:
+    get:
+      summary: Get current user
+      tags: [Authentication]
+      responses:
+        '200':
+          description: Current user information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+  /api/auth/refresh:
+    post:
+      summary: Refresh access token
+      tags: [Authentication]
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                  token_type:
+                    type: string
+                  expires_in:
+                    type: integer
+
+  # Workspace Endpoints
+  /api/workspaces:
+    get:
+      summary: List user workspaces
+      tags: [Workspaces]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of workspaces
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workspaces:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Workspace'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+
+    post:
+      summary: Create new workspace
+      tags: [Workspaces]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  example: Sales Analytics
+                description:
+                  type: string
+                  example: Workspace for sales team analytics
+      responses:
+        '201':
+          description: Workspace created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workspace'
+
+  /api/workspaces/{workspace_id}:
+    get:
+      summary: Get workspace details
+      tags: [Workspaces]
+      parameters:
+        - name: workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Workspace details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workspace'
+        '404':
+          description: Workspace not found
+
+    put:
+      summary: Update workspace
+      tags: [Workspaces]
+      parameters:
+        - name: workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        '200':
+          description: Workspace updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workspace'
+
+    delete:
+      summary: Delete workspace
+      tags: [Workspaces]
+      parameters:
+        - name: workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Workspace deleted
+
+  # Dataset Endpoints
+  /api/workspaces/{workspace_id}/datasets:
+    get:
+      summary: List datasets in workspace
+      tags: [Datasets]
+      parameters:
+        - name: workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of datasets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Dataset'
+
+    post:
+      summary: Create dataset (upload CSV or connect database)
+      tags: [Datasets]
+      parameters:
+        - name: workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: CSV file to upload
+                name:
+                  type: string
+                  description: Dataset name
+          application/json:
+            schema:
+              type: object
+              required: [name, connector_type, connector_config]
+              properties:
+                name:
+                  type: string
+                  example: PostgreSQL Sales Data
+                connector_type:
+                  type: string
+                  enum: [csv, postgresql, mysql, bigquery]
+                  example: postgresql
+                connector_config:
+                  type: object
+                  example:
+                    host: localhost
+                    port: 5432
+                    database: sales
+                    username: user
+                    password: pass
+      responses:
+        '201':
+          description: Dataset created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dataset'
+
+  /api/datasets/{dataset_id}:
+    get:
+      summary: Get dataset details
+      tags: [Datasets]
+      parameters:
+        - name: dataset_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Dataset details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dataset'
+
+  /api/datasets/{dataset_id}/query:
+    post:
+      summary: Query dataset
+      tags: [Datasets]
+      parameters:
+        - name: dataset_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                columns:
+                  type: array
+                  items:
+                    type: string
+                  example: ["category", "sales", "region"]
+                filters:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      column:
+                        type: string
+                      operator:
+                        type: string
+                        enum: ["eq", "ne", "gt", "lt", "gte", "lte", "in", "like"]
+                      value:
+                        oneOf:
+                          - type: string
+                          - type: number
+                          - type: array
+                  example: [{"column": "region", "operator": "eq", "value": "North"}]
+                aggregations:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      column:
+                        type: string
+                      function:
+                        type: string
+                        enum: ["sum", "count", "avg", "min", "max"]
+                      alias:
+                        type: string
+                group_by:
+                  type: array
+                  items:
+                    type: string
+                order_by:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      column:
+                        type: string
+                      direction:
+                        type: string
+                        enum: ["asc", "desc"]
+                limit:
+                  type: integer
+                  default: 1000
+                offset:
+                  type: integer
+                  default: 0
+      responses:
+        '200':
+          description: Query results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                  columns:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        type:
+                          type: string
+                  total_rows:
+                    type: integer
+                  execution_time:
+                    type: number
+
+  # Report Endpoints
+  /api/reports:
+    get:
+      summary: List reports
+      tags: [Reports]
+      parameters:
+        - name: workspace_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of reports
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reports:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Report'
+                  total:
+                    type: integer
+
+    post:
+      summary: Create new report
+      tags: [Reports]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workspace_id, name, report_json]
+              properties:
+                workspace_id:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                  example: Sales Dashboard
+                description:
+                  type: string
+                report_json:
+                  type: object
+                  description: Report definition in internal JSON format
+      responses:
+        '201':
+          description: Report created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+
+  /api/reports/{report_id}:
+    get:
+      summary: Get report
+      tags: [Reports]
+      parameters:
+        - name: report_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Report details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+
+    put:
+      summary: Update report
+      tags: [Reports]
+      parameters:
+        - name: report_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                report_json:
+                  type: object
+      responses:
+        '200':
+          description: Report updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+
+  /api/reports/{report_id}/render:
+    post:
+      summary: Render report to Vega-Lite specification
+      tags: [Reports]
+      parameters:
+        - name: report_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Vega-Lite specification for rendering
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vega_lite_spec:
+                    type: object
+                    description: Complete Vega-Lite specification
+                  data_url:
+                    type: string
+                    description: URL to fetch data for the chart
+
+  /api/reports/{report_id}/export:
+    post:
+      summary: Export report as PNG or PDF
+      tags: [Reports]
+      parameters:
+        - name: report_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [format]
+              properties:
+                format:
+                  type: string
+                  enum: [png, pdf]
+                  example: png
+                width:
+                  type: integer
+                  default: 800
+                  example: 1200
+                height:
+                  type: integer
+                  default: 600
+                  example: 800
+                quality:
+                  type: integer
+                  minimum: 1
+                  maximum: 100
+                  default: 90
+      responses:
+        '202':
+          description: Export job started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    example: processing
+
+  # Dashboard Endpoints
+  /api/dashboards:
+    get:
+      summary: List dashboards
+      tags: [Dashboards]
+      parameters:
+        - name: workspace_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of dashboards
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Dashboard'
+
+    post:
+      summary: Create dashboard
+      tags: [Dashboards]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workspace_id, name]
+              properties:
+                workspace_id:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                description:
+                  type: string
+                dashboard_json:
+                  type: object
+      responses:
+        '201':
+          description: Dashboard created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dashboard'
+
+  # Export and Jobs
+  /api/jobs/{job_id}:
+    get:
+      summary: Get job status
+      tags: [Jobs]
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+
+  # Embed Endpoints
+  /api/embed/token:
+    post:
+      summary: Create secure embed token
+      tags: [Embed]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [report_id]
+              properties:
+                report_id:
+                  type: string
+                  format: uuid
+                expires_in:
+                  type: integer
+                  default: 3600
+                  description: Token expiry in seconds
+                permissions:
+                  type: array
+                  items:
+                    type: string
+                    enum: [view, interact, export]
+                  default: [view]
+      responses:
+        '200':
+          description: Embed token created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  embed_token:
+                    type: string
+                  embed_url:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_login:
+          type: string
+          format: date-time
+
+    Workspace:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        owner_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Dataset:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        connector_type:
+          type: string
+          enum: [csv, postgresql, mysql, bigquery]
+        schema_json:
+          type: object
+          description: Inferred or configured data schema
+        sample_rows:
+          type: array
+          description: Sample data for preview
+        created_at:
+          type: string
+          format: date-time
+        row_count:
+          type: integer
+        file_size:
+          type: integer
+
+    Report:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        report_json:
+          type: object
+          description: Internal report definition
+        owner_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Dashboard:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        dashboard_json:
+          type: object
+          description: Dashboard layout and tile configuration
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Job:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [export_png, export_pdf, data_refresh]
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        payload:
+          type: object
+        result:
+          type: object
+        error_message:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        detail:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+tags:
+  - name: Health
+    description: Service health endpoints
+  - name: Authentication
+    description: User authentication and authorization
+  - name: Workspaces
+    description: Workspace management
+  - name: Datasets
+    description: Data source connections and management
+  - name: Reports
+    description: Report creation and management
+  - name: Dashboards
+    description: Dashboard creation and management
+  - name: Jobs
+    description: Background job monitoring
+  - name: Embed
+    description: Secure embedding capabilities

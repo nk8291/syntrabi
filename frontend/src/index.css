@@ -1,0 +1,442 @@
+/**
+ * PowerBI Web Replica - Global Styles
+ * Tailwind CSS base styles and custom global styles
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom CSS variables for theming */
+:root {
+  --toastify-color-light: #fff;
+  --toastify-color-dark: #121212;
+  --toastify-color-info: #3498db;
+  --toastify-color-success: #22c55e;
+  --toastify-color-warning: #f59e0b;
+  --toastify-color-error: #ef4444;
+  --toastify-color-transparent: rgba(255, 255, 255, 0.7);
+
+  --color-text-primary: #1f2937;
+  --color-text-secondary: #6b7280;
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f9fafb;
+  --color-border: #e5e7eb;
+  --color-border-hover: #d1d5db;
+}
+
+[data-theme="dark"] {
+  --color-text-primary: #f9fafb;
+  --color-text-secondary: #d1d5db;
+  --color-bg-primary: #111827;
+  --color-bg-secondary: #1f2937;
+  --color-border: #374151;
+  --color-border-hover: #4b5563;
+}
+
+/* Base styles */
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+  }
+
+  /* PowerBI Canvas Responsive Styles */
+  .design-canvas {
+    transition: all 0.3s ease;
+    transform-origin: 0 0;
+    position: relative;
+  }
+
+  @media (max-width: 768px) {
+    .design-canvas {
+      transform: scale(0.5);
+    }
+  }
+
+  @media (max-width: 1024px) {
+    .design-canvas {
+      transform: scale(0.75);
+    }
+  }
+
+  /* Panel animations */
+  .panel-transition {
+    transition: all 0.3s ease-in-out;
+  }
+
+  .animate-slide-in-left {
+    animation: slideInLeft 0.3s ease-out forwards;
+  }
+
+  .animate-slide-in-right {
+    animation: slideInRight 0.3s ease-out forwards;
+  }
+
+  @keyframes slideInLeft {
+    from {
+      transform: translateX(-100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes slideInRight {
+    from {
+      transform: translateX(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+
+  /* PowerBI Menu Bar Styles */
+  .powerbi-menu-bar .tab-headers {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .powerbi-menu-bar .tab-headers::-webkit-scrollbar {
+    display: none;
+  }
+
+  .powerbi-menu-bar .action-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+
+  /* Canvas grid background */
+  .canvas-grid-bg {
+    background-image: 
+      linear-gradient(rgba(0, 0, 0, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
+    background-size: 20px 20px;
+  }
+
+  /* Responsive visuals */
+  .visual-container {
+    transition: all 0.2s ease;
+  }
+
+  .visual-container:hover {
+    z-index: 10;
+  }
+
+  /* Loading states */
+  .loading-shimmer {
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: shimmer 2s infinite;
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+
+  #root {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Custom scrollbar styles */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-100 dark:bg-gray-800;
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 dark:bg-gray-600;
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-400 dark:bg-gray-500;
+  }
+
+  /* Focus styles for accessibility */
+  :focus-visible {
+    @apply outline-2 outline-primary-500 outline-offset-2;
+  }
+
+  button:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    @apply ring-2 ring-primary-500 ring-offset-2 dark:ring-offset-gray-800;
+  }
+}
+
+/* Component styles */
+@layer components {
+  /* Button variants */
+  .btn {
+    @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500;
+  }
+
+  .btn-secondary {
+    @apply bg-gray-200 text-gray-900 hover:bg-gray-300 focus:ring-gray-500 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600;
+  }
+
+  .btn-outline {
+    @apply border border-gray-300 text-gray-700 hover:bg-gray-50 focus:ring-primary-500 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800;
+  }
+
+  .btn-ghost {
+    @apply text-gray-700 hover:bg-gray-100 focus:ring-primary-500 dark:text-gray-300 dark:hover:bg-gray-800;
+  }
+
+  .btn-danger {
+    @apply bg-danger-600 text-white hover:bg-danger-700 focus:ring-danger-500;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+
+  .btn-lg {
+    @apply px-6 py-3 text-base;
+  }
+
+  /* Input styles */
+  .input {
+    @apply block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100;
+  }
+
+  .input-error {
+    @apply border-danger-300 focus:border-danger-500 focus:ring-danger-500;
+  }
+
+  /* Card styles */
+  .card {
+    @apply bg-white rounded-lg shadow-sm border border-gray-200 dark:bg-gray-800 dark:border-gray-700;
+  }
+
+  .card-header {
+    @apply px-4 py-3 border-b border-gray-200 dark:border-gray-700;
+  }
+
+  .card-body {
+    @apply p-4;
+  }
+
+  /* Panel styles for designer layout */
+  .panel {
+    @apply bg-white border-r border-gray-200 overflow-hidden dark:bg-gray-800 dark:border-gray-700;
+  }
+
+  .panel-header {
+    @apply px-4 py-3 border-b border-gray-200 bg-gray-50 dark:bg-gray-900 dark:border-gray-700;
+  }
+
+  .panel-content {
+    @apply p-4 overflow-y-auto;
+  }
+
+  /* Visual item styles */
+  .visual-item {
+    @apply p-3 border border-gray-200 rounded-lg cursor-pointer transition-all duration-200 hover:border-primary-300 hover:shadow-md dark:border-gray-600 dark:hover:border-primary-400;
+  }
+
+  .visual-item.selected {
+    @apply border-primary-500 shadow-md ring-2 ring-primary-200 dark:ring-primary-800;
+  }
+
+  /* Drag and drop styles */
+  .drop-zone {
+    @apply border-2 border-dashed border-gray-300 rounded-lg transition-colors duration-200;
+  }
+
+  .drop-zone.drag-over {
+    @apply border-primary-500 bg-primary-50 dark:bg-primary-900/20;
+  }
+
+  /* Canvas styles */
+  .canvas {
+    @apply bg-white relative overflow-auto;
+    background-image: radial-gradient(circle, #e5e7eb 1px, transparent 1px);
+    background-size: 20px 20px;
+  }
+
+  .canvas.dark {
+    @apply bg-gray-900;
+    background-image: radial-gradient(circle, #374151 1px, transparent 1px);
+  }
+
+  /* Toolbar styles */
+  .toolbar {
+    @apply flex items-center space-x-2 px-4 py-2 bg-white border-b border-gray-200 dark:bg-gray-800 dark:border-gray-700;
+  }
+
+  .toolbar-group {
+    @apply flex items-center space-x-1 border-r border-gray-200 pr-2 last:border-r-0 dark:border-gray-700;
+  }
+
+  /* Loading states */
+  .loading-spinner {
+    @apply animate-spin rounded-full border-2 border-gray-300 border-t-primary-600;
+  }
+
+  .skeleton {
+    @apply animate-pulse bg-gray-200 rounded dark:bg-gray-700;
+  }
+
+  /* Utility classes */
+  .text-xs { font-size: 0.75rem; }
+  .text-sm { font-size: 0.875rem; }
+  .text-base { font-size: 1rem; }
+  .text-lg { font-size: 1.125rem; }
+  .text-xl { font-size: 1.25rem; }
+  
+  .transition-base { transition: all 0.15s ease-in-out; }
+  .transition-medium { transition: all 0.25s ease-in-out; }
+  .transition-slow { transition: all 0.4s ease-in-out; }
+}
+
+/* Utility styles */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(156 163 175) rgb(243 244 246);
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Grid utilities for designer layout */
+  .grid-designer {
+    display: grid;
+    grid-template-columns: 280px 280px 1fr 320px;
+    grid-template-rows: 1fr 40px;
+    height: 100vh;
+  }
+
+  .grid-viewer {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: 60px 1fr;
+    height: 100vh;
+  }
+
+  /* Custom animations */
+  .fade-in {
+    animation: fadeIn 0.2s ease-in-out;
+  }
+
+  .fade-out {
+    animation: fadeOut 0.2s ease-in-out;
+  }
+
+  .slide-in-right {
+    animation: slideInRight 0.3s ease-out;
+  }
+
+  .slide-out-right {
+    animation: slideOutRight 0.3s ease-out;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes fadeOut {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+
+  @keyframes slideInRight {
+    from {
+      transform: translateX(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes slideOutRight {
+    from {
+      transform: translateX(0);
+      opacity: 1;
+    }
+    to {
+      transform: translateX(100%);
+      opacity: 0;
+    }
+  }
+}
+
+/* React DnD styles */
+.react-flow__node {
+  @apply border-2 border-gray-300 rounded-lg bg-white shadow-sm dark:bg-gray-800 dark:border-gray-600;
+}
+
+.react-flow__node.selected {
+  @apply border-primary-500 shadow-md;
+}
+
+.react-flow__handle {
+  @apply w-2 h-2 bg-primary-500 border-0;
+}
+
+.react-flow__edge {
+  @apply stroke-gray-400 stroke-2;
+}
+
+.react-flow__edge.selected {
+  @apply stroke-primary-500;
+}
+
+/* Vega-Lite chart container styles */
+.vega-chart {
+  @apply w-full h-full;
+}
+
+.vega-chart .vega-embed {
+  @apply w-full h-full;
+}
+
+.vega-chart .vega-embed summary {
+  @apply hidden;
+}

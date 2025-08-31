@@ -1,0 +1,37 @@
+Date,Product,Category,Sales Amount,Quantity,Customer,Region,Sales Rep
+2024-01-15,Widget A,Electronics,1250.50,25,Acme Corp,North,John Smith
+2024-01-16,Widget B,Electronics,2100.75,15,Beta LLC,South,Jane Doe
+2024-01-17,Gadget X,Home & Garden,875.25,35,Gamma Inc,East,Mike Johnson
+2024-01-18,Widget A,Electronics,1850.00,37,Delta Co,West,Sarah Wilson
+2024-01-19,Tool Y,Tools,650.80,12,Epsilon Ltd,North,John Smith
+2024-01-20,Gadget X,Home & Garden,1200.00,24,Zeta Corp,South,Jane Doe
+2024-01-21,Widget C,Electronics,3200.25,18,Eta Inc,East,Mike Johnson
+2024-01-22,Tool Z,Tools,980.50,22,Theta LLC,West,Sarah Wilson
+2024-01-23,Widget B,Electronics,1750.75,28,Iota Corp,North,John Smith
+2024-01-24,Gadget Y,Home & Garden,1425.00,31,Kappa Ltd,South,Jane Doe
+2024-01-25,Tool Y,Tools,750.25,15,Lambda Inc,East,Mike Johnson
+2024-01-26,Widget A,Electronics,2250.50,45,Mu Corp,West,Sarah Wilson
+2024-01-27,Gadget X,Home & Garden,1650.75,42,Nu LLC,North,John Smith
+2024-01-28,Widget C,Electronics,2800.00,20,Xi Inc,South,Jane Doe
+2024-01-29,Tool Z,Tools,1100.25,26,Omicron Ltd,East,Mike Johnson
+2024-01-30,Widget B,Electronics,1950.50,32,Pi Corp,West,Sarah Wilson
+2024-02-01,Gadget Y,Home & Garden,1325.75,29,Rho Inc,North,John Smith
+2024-02-02,Tool Y,Tools,825.00,18,Sigma LLC,South,Jane Doe
+2024-02-03,Widget A,Electronics,2150.25,43,Tau Corp,East,Mike Johnson
+2024-02-04,Gadget X,Home & Garden,1575.50,38,Upsilon Ltd,West,Sarah Wilson
+2024-02-05,Widget C,Electronics,3450.75,25,Phi Inc,North,John Smith
+2024-02-06,Tool Z,Tools,1250.00,30,Chi Corp,South,Jane Doe
+2024-02-07,Widget B,Electronics,1825.25,34,Psi LLC,East,Mike Johnson
+2024-02-08,Gadget Y,Home & Garden,1675.50,36,Omega Inc,West,Sarah Wilson
+2024-02-09,Tool Y,Tools,925.75,21,Alpha Corp,North,John Smith
+2024-02-10,Widget A,Electronics,2050.00,41,Beta LLC,South,Jane Doe
+2024-02-11,Gadget X,Home & Garden,1450.25,33,Gamma Inc,East,Mike Johnson
+2024-02-12,Widget C,Electronics,2975.50,22,Delta Co,West,Sarah Wilson
+2024-02-13,Tool Z,Tools,1175.75,28,Epsilon Ltd,North,John Smith
+2024-02-14,Widget B,Electronics,2125.00,39,Zeta Corp,South,Jane Doe
+2024-02-15,Gadget Y,Home & Garden,1525.25,35,Eta Inc,East,Mike Johnson
+2024-02-16,Tool Y,Tools,875.50,19,Theta LLC,West,Sarah Wilson
+2024-02-17,Widget A,Electronics,2325.75,46,Iota Corp,North,John Smith
+2024-02-18,Gadget X,Home & Garden,1775.00,44,Kappa Ltd,South,Jane Doe
+2024-02-19,Widget C,Electronics,3125.25,24,Lambda Inc,East,Mike Johnson
+2024-02-20,Tool Z,Tools,1325.50,32,Mu Corp,West,Sarah Wilson

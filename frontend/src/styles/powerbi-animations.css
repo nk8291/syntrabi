@@ -1,0 +1,129 @@
+/* Power BI Panel Animations */
+@keyframes slideInFromLeft {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInFromRight {
+  0% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutToLeft {
+  0% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+}
+
+@keyframes slideOutToRight {
+  0% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* Animation Classes */
+.animate-slide-in-left {
+  animation: slideInFromLeft 0.3s ease-out;
+}
+
+.animate-slide-in-right {
+  animation: slideInFromRight 0.3s ease-out;
+}
+
+.animate-slide-out-left {
+  animation: slideOutToLeft 0.3s ease-in;
+}
+
+.animate-slide-out-right {
+  animation: slideOutToRight 0.3s ease-in;
+}
+
+/* Panel transition effects */
+.panel-transition {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Power BI button states */
+.powerbi-panel-button {
+  transition: all 0.2s ease-in-out;
+}
+
+.powerbi-panel-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.powerbi-panel-button.active {
+  transform: scale(1.05);
+  box-shadow: 0 6px 12px rgba(59, 130, 246, 0.3);
+}
+
+/* Panel content animations */
+.panel-content {
+  opacity: 0;
+  animation: fadeIn 0.4s ease-out 0.1s forwards;
+}
+
+@keyframes fadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Responsive panel behavior */
+@media (max-width: 1024px) {
+  .panel-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.3);
+    z-index: 40;
+  }
+  
+  .mobile-panel {
+    position: fixed;
+    top: 60px;
+    height: calc(100vh - 60px);
+    z-index: 50;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  }
+  
+  .mobile-panel.left {
+    left: 0;
+    animation: slideInFromLeft 0.3s ease-out;
+  }
+  
+  .mobile-panel.right {
+    right: 0;
+    animation: slideInFromRight 0.3s ease-out;
+  }
+}

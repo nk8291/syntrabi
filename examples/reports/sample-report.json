@@ -1,0 +1,208 @@
+{
+  "id": "sample-report-1",
+  "name": "Sales Dashboard",
+  "description": "Sample sales report showing key metrics and trends",
+  "workspace_id": "workspace-1",
+  "dataset_id": "dataset-1",
+  "version": 1,
+  "created_at": "2024-01-01T00:00:00Z",
+  "report_json": {
+    "pages": [
+      {
+        "id": "page-1",
+        "name": "Overview",
+        "width": 1200,
+        "height": 800,
+        "background": "#ffffff",
+        "visuals": [
+          {
+            "id": "visual-1",
+            "type": "bar",
+            "title": "Sales by Category",
+            "position": {
+              "x": 50,
+              "y": 50,
+              "width": 500,
+              "height": 300
+            },
+            "data_binding": {
+              "dataset_id": "dataset-1",
+              "fields": [
+                {
+                  "role": "x",
+                  "field": "Category",
+                  "aggregation": null
+                },
+                {
+                  "role": "y", 
+                  "field": "Sales Amount",
+                  "aggregation": "sum"
+                }
+              ],
+              "filters": []
+            },
+            "config": {
+              "colors": ["#3b82f6", "#ef4444", "#10b981", "#f59e0b"],
+              "legend": {
+                "show": true,
+                "position": "right"
+              },
+              "axes": {
+                "x": {
+                  "show": true,
+                  "title": "Product Category"
+                },
+                "y": {
+                  "show": true,
+                  "title": "Total Sales ($)"
+                }
+              },
+              "formatting": {
+                "number_format": "$,.0f"
+              }
+            }
+          },
+          {
+            "id": "visual-2", 
+            "type": "line",
+            "title": "Sales Trend Over Time",
+            "position": {
+              "x": 600,
+              "y": 50,
+              "width": 550,
+              "height": 300
+            },
+            "data_binding": {
+              "dataset_id": "dataset-1",
+              "fields": [
+                {
+                  "role": "x",
+                  "field": "Date",
+                  "aggregation": null
+                },
+                {
+                  "role": "y",
+                  "field": "Sales Amount", 
+                  "aggregation": "sum"
+                }
+              ],
+              "filters": []
+            },
+            "config": {
+              "colors": ["#10b981"],
+              "legend": {
+                "show": false
+              },
+              "axes": {
+                "x": {
+                  "show": true,
+                  "title": "Date"
+                },
+                "y": {
+                  "show": true,
+                  "title": "Daily Sales ($)"
+                }
+              }
+            }
+          },
+          {
+            "id": "visual-3",
+            "type": "pie", 
+            "title": "Sales by Region",
+            "position": {
+              "x": 50,
+              "y": 400,
+              "width": 350,
+              "height": 300
+            },
+            "data_binding": {
+              "dataset_id": "dataset-1",
+              "fields": [
+                {
+                  "role": "color",
+                  "field": "Region", 
+                  "aggregation": null
+                },
+                {
+                  "role": "size",
+                  "field": "Sales Amount",
+                  "aggregation": "sum"
+                }
+              ],
+              "filters": []
+            },
+            "config": {
+              "colors": ["#3b82f6", "#ef4444", "#10b981", "#f59e0b"],
+              "legend": {
+                "show": true,
+                "position": "right"
+              }
+            }
+          },
+          {
+            "id": "visual-4",
+            "type": "table",
+            "title": "Top Products by Sales",
+            "position": {
+              "x": 450,
+              "y": 400,
+              "width": 700,
+              "height": 300
+            },
+            "data_binding": {
+              "dataset_id": "dataset-1", 
+              "fields": [
+                {
+                  "role": "detail",
+                  "field": "Product",
+                  "aggregation": null
+                },
+                {
+                  "role": "detail",
+                  "field": "Category",
+                  "aggregation": null
+                },
+                {
+                  "role": "detail",
+                  "field": "Sales Amount",
+                  "aggregation": "sum",
+                  "sort": {
+                    "direction": "desc",
+                    "by": "value"
+                  }
+                },
+                {
+                  "role": "detail",
+                  "field": "Quantity", 
+                  "aggregation": "sum"
+                }
+              ],
+              "filters": []
+            },
+            "config": {
+              "formatting": {
+                "number_format": "$,.2f"
+              }
+            }
+          }
+        ],
+        "filters": []
+      }
+    ],
+    "theme": {
+      "name": "default",
+      "colors": {
+        "background": "#ffffff",
+        "foreground": "#1f2937",
+        "accent": "#3b82f6",
+        "data_colors": ["#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"]
+      },
+      "fonts": {
+        "heading": "Inter",
+        "body": "Inter"
+      }
+    },
+    "variables": [],
+    "filters": []
+  }
+}
