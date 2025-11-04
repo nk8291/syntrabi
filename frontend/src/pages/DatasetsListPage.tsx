@@ -25,7 +25,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext'
 import { datasetService, Dataset } from '@/services/datasetService'
 import SimpleUploadModal from '@/components/dataset/SimpleUploadModal'
-import DatabaseConnectionModal from '@/components/dataset/DatabaseConnectionModal'
+import DataSourceConnector from '@/components/designer/DataSourceConnector'
 import DatasetPreviewModal from '@/components/dataset/DatasetPreviewModal'
 
 const DatasetsListPage: React.FC = () => {
@@ -33,7 +33,7 @@ const DatasetsListPage: React.FC = () => {
   const [datasets, setDatasets] = useState<Dataset[]>([])
   const [loading, setLoading] = useState(true)
   const [showUploadModal, setShowUploadModal] = useState(false)
-  const [showDatabaseModal, setShowDatabaseModal] = useState(false)
+  const [showGetDataModal, setShowGetDataModal] = useState(false)
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null)
   const [previewDataset, setPreviewDataset] = useState<Dataset | null>(null)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
@@ -93,8 +93,8 @@ const DatasetsListPage: React.FC = () => {
     setShowUploadModal(true)
   }
 
-  const handleConnectDatabase = () => {
-    setShowDatabaseModal(true)
+  const handleGetData = () => {
+    setShowGetDataModal(true)
   }
 
   const handleUploadSuccess = (dataset: Dataset) => {
@@ -172,18 +172,11 @@ const DatasetsListPage: React.FC = () => {
         </div>
         <div className="flex space-x-3">
           <button
-            onClick={handleConnectDatabase}
-            className="btn btn-outline flex items-center space-x-2"
-          >
-            <TableCellsIcon className="h-5 w-5" />
-            <span>Connect Database</span>
-          </button>
-          <button
-            onClick={handleUploadDataset}
+            onClick={handleGetData}
             className="btn btn-primary flex items-center space-x-2"
           >
-            <ArrowUpTrayIcon className="h-5 w-5" />
-            <span>Upload CSV</span>
+            <PlusIcon className="h-5 w-5" />
+            <span>Get Data</span>
           </button>
         </div>
       </div>
@@ -202,22 +195,15 @@ const DatasetsListPage: React.FC = () => {
             <TableCellsIcon className="h-16 w-16 mx-auto text-gray-300 mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No datasets yet</h3>
             <p className="text-gray-500 mb-6">
-              Upload a CSV file or connect to a database to get started
+              Connect to a data source or upload files to get started
             </p>
-            <div className="flex justify-center space-x-3">
+            <div className="flex justify-center">
               <button
-                onClick={handleUploadDataset}
+                onClick={handleGetData}
                 className="btn btn-primary"
               >
-                <ArrowUpTrayIcon className="h-5 w-5 mr-2" />
-                Upload CSV File
-              </button>
-              <button
-                onClick={handleConnectDatabase}
-                className="btn btn-outline"
-              >
-                <TableCellsIcon className="h-5 w-5 mr-2" />
-                Connect Database
+                <PlusIcon className="h-5 w-5 mr-2" />
+                Get Data
               </button>
             </div>
           </div>
@@ -380,20 +366,17 @@ const DatasetsListPage: React.FC = () => {
         </div>
       )}
 
-      {/* Upload Modal */}
-      <SimpleUploadModal
-        isOpen={showUploadModal}
-        onClose={() => setShowUploadModal(false)}
+      {/* Get Data Modal (DataSourceConnector) */}
+      <DataSourceConnector
+        isOpen={showGetDataModal}
+        onClose={() => setShowGetDataModal(false)}
         workspaceId={workspaceId}
-        onSuccess={handleUploadSuccess}
-      />
-
-      {/* Database Connection Modal */}
-      <DatabaseConnectionModal
-        isOpen={showDatabaseModal}
-        onClose={() => setShowDatabaseModal(false)}
-        workspaceId={workspaceId}
-        onSuccess={handleUploadSuccess}
+        onConnect={(source, config, mode, datasetId) => {
+          console.log('Dataset connected:', { source, config, mode, datasetId })
+          setShowGetDataModal(false)
+          loadDatasets() // Refresh the datasets list
+        }}
+        onCancel={() => setShowGetDataModal(false)}
       />
 
       {/* Dataset Preview Modal */}

@@ -1,5 +1,5 @@
--- PowerBI Web Replica - Database Initialization Script
--- Creates initial database schema and sample data
+-- Syntra - Advanced Business Intelligence Platform
+-- Database initialization script with comprehensive schema
 
 -- Extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

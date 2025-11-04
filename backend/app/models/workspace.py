@@ -57,8 +57,8 @@ class Workspace(Base):
             "allow_external_sharing": self.allow_external_sharing,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            # Include counts for dashboard
-            "datasets_count": len(self.datasets) if self.datasets else 0,
-            "reports_count": len(self.reports) if self.reports else 0,
-            "dashboards_count": len(self.dashboards) if self.dashboards else 0,
+            # Set default counts - these will be populated by the service layer if needed
+            "datasets_count": 0,
+            "reports_count": 0,
+            "dashboards_count": 0,
         }

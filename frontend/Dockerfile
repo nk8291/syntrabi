@@ -1,8 +1,8 @@
-# PowerBI Web Replica Frontend Dockerfile
+# Syntra Frontend Dockerfile
 FROM node:18-alpine AS base
 
-# Install dependencies for building native modules
-RUN apk add --no-cache libc6-compat
+# Install dependencies for building native modules and fix Rollup issues
+RUN apk add --no-cache libc6-compat python3 make g++
 
 WORKDIR /app
 
@@ -11,14 +11,17 @@ COPY package*.json ./
 
 # Development stage
 FROM base AS development
-RUN npm ci --only=development
+# Clean install with proper platform handling for Rollup
+RUN rm -rf node_modules package-lock.json
+RUN npm ci --only=production
 COPY . .
 EXPOSE 3000
 CMD ["npm", "run", "dev"]
 
 # Production build stage
 FROM base AS builder
-RUN npm ci --only=production && npm cache clean --force
+RUN rm -rf node_modules package-lock.json
+RUN npm install --legacy-peer-deps
 COPY . .
 RUN npm run build
 

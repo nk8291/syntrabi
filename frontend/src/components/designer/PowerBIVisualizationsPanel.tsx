@@ -4,7 +4,7 @@
  */
 
 import React from 'react'
-import { useDrop } from 'react-dnd'
+import { useDrop, useDrag } from 'react-dnd'
 import {
   ChartBarIcon,
   ChartPieIcon,
@@ -13,23 +13,13 @@ import {
   CircleStackIcon,
   TableCellsIcon,
   XMarkIcon,
-  MapIcon,
   SparklesIcon,
   RectangleGroupIcon,
   Square3Stack3DIcon,
   CreditCardIcon,
   ClockIcon,
-  DocumentTextIcon,
-  PhotoIcon,
-  CursorArrowRippleIcon,
   CubeIcon,
   FunnelIcon,
-  ArrowTrendingUpIcon,
-  GlobeAmericasIcon,
-  ChatBubbleBottomCenterTextIcon,
-  BeakerIcon,
-  BookOpenIcon,
-  AdjustmentsHorizontalIcon,
   ChevronDownIcon
 } from '@heroicons/react/24/outline'
 import { Visual, VisualType } from '@/types/report'
@@ -53,13 +43,11 @@ const PowerBIVisualizationsPanel: React.FC<PowerBIVisualizationsPanelProps> = ({
   // Basic Charts
   const basicCharts = [
     { type: 'column-chart' as VisualType, icon: ChartBarIcon, label: 'Clustered column chart', description: 'Compare values across categories' },
-    { type: 'stacked-column-chart' as VisualType, icon: ChartBarIcon, label: 'Stacked column chart', description: 'Compare parts of a whole across categories' },
+    { type: 'stacked-column-chart' as VisualType, icon: RectangleGroupIcon, label: 'Stacked column chart', description: 'Compare parts of a whole across categories' },
     { type: 'bar-chart' as VisualType, icon: ChartBarSquareIcon, label: 'Clustered bar chart', description: 'Compare values across categories horizontally' },
     { type: 'line-chart' as VisualType, icon: PresentationChartLineIcon, label: 'Line chart', description: 'Show trends over time or ordered categories' },
     { type: 'area-chart' as VisualType, icon: CircleStackIcon, label: 'Area chart', description: 'Like line chart with filled areas' },
-    { type: 'waterfall' as VisualType, icon: FunnelIcon, label: 'Waterfall chart', description: 'Show cumulative effect of sequential changes' },
-    { type: 'funnel-chart' as VisualType, icon: FunnelIcon, label: 'Funnel chart', description: 'Show values at different stages of a process' },
-    { type: 'combo' as VisualType, icon: ArrowTrendingUpIcon, label: 'Line and clustered column chart', description: 'Combine line and column charts' }
+    { type: 'combo' as VisualType, icon: Square3Stack3DIcon, label: 'Line and clustered column chart', description: 'Combine line and column charts' }
   ]
 
   // Pie Charts
@@ -70,84 +58,69 @@ const PowerBIVisualizationsPanel: React.FC<PowerBIVisualizationsPanelProps> = ({
 
   // Scatter Charts
   const scatterCharts = [
-    { type: 'scatter-plot' as VisualType, icon: CircleStackIcon, label: 'Scatter chart', description: 'Show relationships between two measures' },
-    { type: 'bubble' as VisualType, icon: CircleStackIcon, label: 'Bubble chart', description: 'Like scatter chart with third measure for size' }
-  ]
-
-  // Tree Charts
-  const treeCharts = [
-    { type: 'treemap' as VisualType, icon: Square3Stack3DIcon, label: 'Treemap', description: 'Show hierarchical data with nested rectangles' },
-    { type: 'sunburst' as VisualType, icon: SparklesIcon, label: 'Sunburst chart', description: 'Show hierarchical data in concentric circles' }
-  ]
-
-  // Gauge Charts
-  const gaugeCharts = [
-    { type: 'gauge-chart' as VisualType, icon: ClockIcon, label: 'Gauge', description: 'Show progress toward a goal' },
-    { type: 'card' as VisualType, icon: CreditCardIcon, label: 'Card', description: 'Display a single important number' },
-    { type: 'multi_row_card' as VisualType, icon: CreditCardIcon, label: 'Multi-row card', description: 'Display multiple important numbers' },
-    { type: 'kpi' as VisualType, icon: ArrowTrendingUpIcon, label: 'KPI', description: 'Show key performance indicators with trends' }
+    { type: 'scatter-plot' as VisualType, icon: SparklesIcon, label: 'Scatter chart', description: 'Show relationships between two measures' }
   ]
 
   // Advanced Charts
   const advancedCharts = [
-    { type: 'waterfall' as VisualType, icon: FunnelIcon, label: 'Waterfall chart', description: 'Show cumulative effect of sequential changes' },
-    { type: 'funnel' as VisualType, icon: FunnelIcon, label: 'Funnel chart', description: 'Show values at different stages of a process' },
-    { type: 'decomposition_tree' as VisualType, icon: BeakerIcon, label: 'Decomposition tree', description: 'Break down a measure by dimensions' },
-    { type: 'key_influencers' as VisualType, icon: BeakerIcon, label: 'Key influencers', description: 'Find what drives a metric up or down' }
-  ]
-
-  // Maps
-  const mapCharts = [
-    { type: 'map' as VisualType, icon: MapIcon, label: 'Map', description: 'Show data on a geographic map using bubbles' },
-    { type: 'filled_map' as VisualType, icon: GlobeAmericasIcon, label: 'Filled map', description: 'Show data on a geographic map using color' },
-    { type: 'arcgis_map' as VisualType, icon: MapIcon, label: 'ArcGIS Maps', description: 'Advanced mapping from Esri' },
-    { type: 'shape_map' as VisualType, icon: MapIcon, label: 'Shape map', description: 'Custom geographic regions' }
+    { type: 'funnel-chart' as VisualType, icon: FunnelIcon, label: 'Funnel chart', description: 'Show values at different stages of a process' },
+    { type: 'gauge-chart' as VisualType, icon: ClockIcon, label: 'Gauge', description: 'Show progress toward a goal' }
   ]
 
   // Data Display
   const dataDisplay = [
     { type: 'table' as VisualType, icon: TableCellsIcon, label: 'Table', description: 'Display detailed data in rows and columns' },
-    { type: 'matrix' as VisualType, icon: TableCellsIcon, label: 'Matrix', description: 'Display data in a cross-table format' },
-    { type: 'slicer' as VisualType, icon: AdjustmentsHorizontalIcon, label: 'Slicer', description: 'Filter other visuals on the page' }
-  ]
-
-  // AI & Analytics
-  const aiAnalytics = [
-    { type: 'Q&A' as VisualType, icon: ChatBubbleBottomCenterTextIcon, label: 'Q&A', description: 'Ask questions about your data in natural language' },
-    { type: 'smart_narrative' as VisualType, icon: BookOpenIcon, label: 'Smart narrative', description: 'Generate text insights about your data' }
+    { type: 'card' as VisualType, icon: CreditCardIcon, label: 'Card', description: 'Display a single important number' }
   ]
 
   // Elements
   const elements = [
-    { type: 'text_box' as VisualType, icon: DocumentTextIcon, label: 'Text box', description: 'Add formatted text to your report' },
-    { type: 'button' as VisualType, icon: CursorArrowRippleIcon, label: 'Button', description: 'Add interactive buttons for navigation' },
-    { type: 'image' as VisualType, icon: PhotoIcon, label: 'Image', description: 'Add images to your report' },
     { type: 'shape' as VisualType, icon: CubeIcon, label: 'Shapes', description: 'Add decorative shapes' }
   ]
+
+  const VisualizationButton: React.FC<{ visual: any }> = ({ visual }) => {
+    const [{ isDragging }, drag] = useDrag({
+      type: 'visual-type',
+      item: { 
+        type: 'visual-type',
+        visualType: visual.type,
+        name: visual.label
+      },
+      collect: (monitor) => ({
+        isDragging: monitor.isDragging(),
+      }),
+    })
+
+    const visualConfig = getVisualTypeById(visual.type)
+    
+    return (
+      <button
+        ref={drag}
+        key={visual.type}
+        onClick={() => onAddVisual(visual.type)}
+        className={`p-2 border border-gray-200 rounded hover:border-blue-500 hover:bg-blue-50 transition-colors group relative ${
+          isDragging ? 'opacity-50' : ''
+        }`}
+        title={visual.description}
+      >
+        <visual.icon className="h-6 w-6 mx-auto text-gray-600 group-hover:text-blue-600" />
+        {/* Show visual type icon from config if available */}
+        {visualConfig && (
+          <div className="absolute -top-1 -right-1 text-xs bg-blue-100 rounded-full w-4 h-4 flex items-center justify-center">
+            {visualConfig.icon}
+          </div>
+        )}
+      </button>
+    )
+  }
 
   const renderVisualizationCategory = (title: string, visuals: any[]) => (
     <div className="mb-4">
       <h5 className="text-xs font-medium text-gray-600 mb-2 uppercase tracking-wider">{title}</h5>
       <div className="grid grid-cols-4 gap-1">
-        {visuals.map((visual) => {
-          const visualConfig = getVisualTypeById(visual.type)
-          return (
-            <button
-              key={visual.type}
-              onClick={() => onAddVisual(visual.type)}
-              className="p-2 border border-gray-200 rounded hover:border-blue-500 hover:bg-blue-50 transition-colors group relative"
-              title={visual.description}
-            >
-              <visual.icon className="h-6 w-6 mx-auto text-gray-600 group-hover:text-blue-600" />
-              {/* Show visual type icon from config if available */}
-              {visualConfig && (
-                <div className="absolute -top-1 -right-1 text-xs bg-blue-100 rounded-full w-4 h-4 flex items-center justify-center">
-                  {visualConfig.icon}
-                </div>
-              )}
-            </button>
-          )
-        })}
+        {visuals.map((visual) => (
+          <VisualizationButton key={visual.type} visual={visual} />
+        ))}
       </div>
     </div>
   )
@@ -159,12 +132,8 @@ const PowerBIVisualizationsPanel: React.FC<PowerBIVisualizationsPanelProps> = ({
         {renderVisualizationCategory('Basic Charts', basicCharts)}
         {renderVisualizationCategory('Pie Charts', pieCharts)}
         {renderVisualizationCategory('Scatter Charts', scatterCharts)}
-        {renderVisualizationCategory('Tree Charts', treeCharts)}
-        {renderVisualizationCategory('Gauges & Cards', gaugeCharts)}
         {renderVisualizationCategory('Advanced Charts', advancedCharts)}
-        {renderVisualizationCategory('Maps', mapCharts)}
         {renderVisualizationCategory('Data Display', dataDisplay)}
-        {renderVisualizationCategory('AI & Analytics', aiAnalytics)}
         {renderVisualizationCategory('Elements', elements)}
       </div>
 

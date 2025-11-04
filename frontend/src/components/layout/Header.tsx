@@ -33,14 +33,21 @@ const Header: React.FC = () => {
           <div className="flex items-center">
             <Link
               to="/dashboard"
-              className="flex items-center space-x-2"
+              className="flex items-center space-x-3"
             >
-              <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">PBI</span>
+              <img 
+                src="/syntra.png" 
+                alt="Syntra" 
+                className="w-10 h-10 object-contain"
+              />
+              <div className="flex flex-col">
+                <span className="text-xl font-bold text-blue-900">
+                  Syntra
+                </span>
+                <span className="text-xs text-gray-500 -mt-1">
+                  Where data meets decisions
+                </span>
               </div>
-              <span className="text-xl font-bold text-gray-900">
-                PowerBI Web Replica
-              </span>
             </Link>
           </div>
 

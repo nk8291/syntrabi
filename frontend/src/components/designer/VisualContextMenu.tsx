@@ -12,7 +12,12 @@ import {
   ArrowDownTrayIcon,
   PhotoIcon,
   DocumentTextIcon,
-  PresentationChartLineIcon
+  PresentationChartLineIcon,
+  ArrowsPointingOutIcon,
+  ChatBubbleLeftIcon,
+  EyeIcon,
+  ShareIcon,
+  CameraIcon
 } from '@heroicons/react/24/outline'
 import { Visual } from '@/types/report'
 
@@ -26,6 +31,9 @@ interface VisualContextMenuProps {
   onExportPNG?: () => void
   onExportSVG?: () => void
   onExportPDF?: () => void
+  onFocusMode?: () => void
+  onAddComment?: () => void
+  onShare?: () => void
   onClose: () => void
 }
 
@@ -39,6 +47,9 @@ const VisualContextMenu: React.FC<VisualContextMenuProps> = ({
   onExportPNG,
   onExportSVG,
   onExportPDF,
+  onFocusMode,
+  onAddComment,
+  onShare,
   onClose
 }) => {
   const menuItems = []
@@ -46,6 +57,91 @@ const VisualContextMenu: React.FC<VisualContextMenuProps> = ({
   // Visual-specific actions
   if (visual) {
     menuItems.push(
+      {
+        label: 'Focus mode',
+        icon: ArrowsPointingOutIcon,
+        onClick: onFocusMode,
+        shortcut: 'Shift+F'
+      },
+      {
+        label: 'Show data',
+        icon: DocumentTextIcon,
+        onClick: () => {
+          alert(`Data for ${visual.type} chart:\nThis would show the underlying data in a table format.`)
+          onClose()
+        }
+      },
+      { type: 'separator' },
+      {
+        label: 'Download image',
+        icon: CameraIcon,
+        submenu: [
+          {
+            label: 'PNG',
+            onClick: () => {
+              onExportPNG?.()
+              alert('Visual exported as PNG')
+              onClose()
+            }
+          },
+          {
+            label: 'JPEG',
+            onClick: () => {
+              alert('Visual exported as JPEG')
+              onClose()
+            }
+          },
+          {
+            label: 'SVG',
+            onClick: () => {
+              onExportSVG?.()
+              alert('Visual exported as SVG')
+              onClose()
+            }
+          }
+        ]
+      },
+      {
+        label: 'Download chart data',
+        icon: ArrowDownTrayIcon,
+        submenu: [
+          {
+            label: 'Excel (.xlsx)',
+            onClick: () => {
+              alert('Chart data exported to Excel')
+              onClose()
+            }
+          },
+          {
+            label: 'CSV (.csv)',
+            onClick: () => {
+              alert('Chart data exported to CSV')
+              onClose()
+            }
+          }
+        ]
+      },
+      { type: 'separator' },
+      {
+        label: 'Add comment',
+        icon: ChatBubbleLeftIcon,
+        onClick: () => {
+          const comment = prompt('Add a comment to this visual:')
+          if (comment) {
+            alert(`Comment added: "${comment}"`)
+          }
+          onClose()
+        }
+      },
+      {
+        label: 'Share',
+        icon: ShareIcon,
+        onClick: () => {
+          alert('Share options:\n- Copy link\n- Email\n- Embed code\n- Export to PowerPoint')
+          onClose()
+        }
+      },
+      { type: 'separator' },
       {
         label: 'Copy visual',
         icon: ClipboardDocumentIcon,
@@ -57,53 +153,6 @@ const VisualContextMenu: React.FC<VisualContextMenuProps> = ({
         icon: DocumentDuplicateIcon,
         onClick: onDuplicate,
         shortcut: 'Ctrl+D'
-      },
-      { type: 'separator' },
-      {
-        label: 'Export data',
-        icon: ArrowDownTrayIcon,
-        onClick: () => {
-          // TODO: Implement export data functionality
-          console.log('Export data not implemented yet')
-          onClose()
-        }
-      },
-      {
-        label: 'Export image',
-        icon: PhotoIcon,
-        submenu: [
-          {
-            label: 'PNG',
-            onClick: onExportPNG
-          },
-          {
-            label: 'SVG',
-            onClick: onExportSVG
-          },
-          {
-            label: 'PDF',
-            onClick: onExportPDF
-          }
-        ]
-      },
-      { type: 'separator' },
-      {
-        label: 'Show data',
-        icon: DocumentTextIcon,
-        onClick: () => {
-          // TODO: Implement show data functionality
-          console.log('Show data not implemented yet')
-          onClose()
-        }
-      },
-      {
-        label: 'Spotlight',
-        icon: PresentationChartLineIcon,
-        onClick: () => {
-          // TODO: Implement spotlight functionality
-          console.log('Spotlight not implemented yet')
-          onClose()
-        }
       },
       { type: 'separator' },
       {

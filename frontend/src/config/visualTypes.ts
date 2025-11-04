@@ -158,7 +158,7 @@ export const VISUAL_TYPES: VisualConfig[] = [
     id: 'bar-chart',
     name: 'Clustered Bar Chart', 
     category: 'chart',
-    icon: '📈',
+    icon: '↔️',
     description: 'Compare values across categories using horizontal bars',
     chartType: 'bar',
     fieldWells: {
@@ -428,7 +428,7 @@ export const VISUAL_TYPES: VisualConfig[] = [
     id: 'scatter-plot',
     name: 'Scatter Plot',
     category: 'chart',
-    icon: '⚪',
+    icon: '🔴',
     description: 'Show correlation between two measures',
     chartType: 'scatter',
     fieldWells: {
@@ -633,7 +633,7 @@ export const VISUAL_TYPES: VisualConfig[] = [
     id: 'stacked-column-chart',
     name: 'Stacked Column Chart',
     category: 'chart',
-    icon: '📊',
+    icon: '📚',
     description: 'Compare totals and parts across categories',
     chartType: 'bar',
     fieldWells: {
@@ -842,6 +842,196 @@ export const VISUAL_TYPES: VisualConfig[] = [
         }]
       }
     }
+  },
+
+  // INTERACTIVE MAP
+  {
+    id: 'interactive-map',
+    name: 'Interactive Map',
+    category: 'map',
+    icon: '🗺️',
+    description: 'Geographic visualization with interactive markers',
+    chartType: 'map',
+    fieldWells: {
+      latitude: { 
+        label: 'Latitude', 
+        max: 1, 
+        required: true, 
+        accepts: ['measure'], 
+        fields: [] 
+      },
+      longitude: { 
+        label: 'Longitude', 
+        max: 1, 
+        required: true, 
+        accepts: ['measure'], 
+        fields: [] 
+      },
+      category: { 
+        label: 'Category', 
+        max: 1, 
+        required: false, 
+        accepts: ['dimension'], 
+        fields: [] 
+      },
+      values: { 
+        label: 'Values', 
+        max: 1, 
+        required: false, 
+        accepts: ['measure'], 
+        fields: [] 
+      },
+      labels: { 
+        label: 'Labels', 
+        max: 1, 
+        required: false, 
+        accepts: ['dimension'], 
+        fields: [] 
+      }
+    },
+    properties: {
+      showTitle: { type: 'boolean', label: 'Show Title', default: true },
+      title: { type: 'text', label: 'Map Title', default: '' },
+      mapType: { 
+        type: 'select', 
+        label: 'Map Type', 
+        default: 'markers',
+        options: ['markers', 'choropleth', 'heatmap']
+      },
+      centerLat: { type: 'number', label: 'Center Latitude', default: 51.505 },
+      centerLng: { type: 'number', label: 'Center Longitude', default: -0.09 },
+      zoom: { type: 'slider', label: 'Zoom Level', default: 2, min: 1, max: 18 },
+      showLegend: { type: 'boolean', label: 'Show Legend', default: true },
+      clusterMarkers: { type: 'boolean', label: 'Cluster Markers', default: false }
+    },
+    getEChartsOption: (data, fieldWells, config) => {
+      const latField = fieldWells.latitude?.fields[0]
+      const lngField = fieldWells.longitude?.fields[0]
+      
+      if (!latField || !lngField) {
+        return createEmptyOption('Map visualization - add latitude and longitude fields')
+      }
+
+      // Transform data for map component
+      const mapData = data.map((d, index) => ({
+        id: `point-${index}`,
+        latitude: d[latField.name] || 0,
+        longitude: d[lngField.name] || 0,
+        value: fieldWells.values?.fields[0] ? d[fieldWells.values.fields[0].name] : undefined,
+        label: fieldWells.labels?.fields[0] ? d[fieldWells.labels.fields[0].name] : `Point ${index + 1}`,
+        category: fieldWells.category?.fields[0] ? d[fieldWells.category.fields[0].name] : undefined
+      }))
+
+      return {
+        title: config.showTitle !== false ? {
+          text: config.title || 'Interactive Map',
+        } : undefined,
+        // Custom map configuration for our InteractiveMap component
+        mapType: 'leaflet',
+        mapData,
+        mapConfig: {
+          center: [config.centerLat || 51.505, config.centerLng || -0.09],
+          zoom: config.zoom || 2,
+          mapType: config.mapType || 'markers',
+          showLegend: config.showLegend !== false,
+          clusterMarkers: config.clusterMarkers || false
+        }
+      }
+    }
+  },
+
+  // SMALL MULTIPLES
+  {
+    id: 'small-multiples',
+    name: 'Small Multiples',
+    category: 'custom',
+    icon: '🔢',
+    description: 'Multiple small charts for comparative analysis',
+    chartType: 'small-multiples',
+    fieldWells: {
+      splitBy: { 
+        label: 'Split By', 
+        max: 1, 
+        required: true, 
+        accepts: ['dimension'], 
+        fields: [] 
+      },
+      xAxis: { 
+        label: 'X-Axis', 
+        max: 1, 
+        required: true, 
+        accepts: ['dimension'], 
+        fields: [] 
+      },
+      yAxis: { 
+        label: 'Y-Axis', 
+        max: 1, 
+        required: true, 
+        accepts: ['measure'], 
+        fields: [] 
+      },
+      legend: { 
+        label: 'Legend', 
+        max: 1, 
+        required: false, 
+        accepts: ['dimension'], 
+        fields: [] 
+      }
+    },
+    properties: {
+      showTitle: { type: 'boolean', label: 'Show Title', default: true },
+      title: { type: 'text', label: 'Chart Title', default: '' },
+      columns: { 
+        type: 'slider', 
+        label: 'Columns', 
+        default: 3, 
+        min: 1, 
+        max: 6 
+      },
+      maxRows: { 
+        type: 'slider', 
+        label: 'Max Rows', 
+        default: 4, 
+        min: 1, 
+        max: 8 
+      },
+      showIndividualTitles: { type: 'boolean', label: 'Show Individual Titles', default: true },
+      syncScales: { type: 'boolean', label: 'Sync Scales', default: true },
+      chartType: { 
+        type: 'select', 
+        label: 'Individual Chart Type', 
+        default: 'column',
+        options: ['column', 'line', 'area', 'bar']
+      }
+    },
+    getEChartsOption: (data, fieldWells, config) => {
+      const splitField = fieldWells.splitBy?.fields[0]
+      const xField = fieldWells.xAxis?.fields[0]
+      const yField = fieldWells.yAxis?.fields[0]
+      
+      if (!splitField || !xField || !yField) {
+        return createEmptyOption('Small Multiples - add Split By, X-Axis, and Y-Axis fields')
+      }
+
+      return {
+        title: config.showTitle !== false ? {
+          text: config.title || 'Small Multiples',
+        } : undefined,
+        // Custom configuration for SmallMultiples component
+        chartType: 'small-multiples',
+        splitBy: splitField.name,
+        baseVisualType: config.chartType || 'column',
+        smallMultipleConfig: {
+          id: `sm_${Date.now()}`,
+          name: config.title || 'Small Multiples',
+          splitBy: splitField.name,
+          columns: config.columns || 3,
+          maxRows: config.maxRows || 4,
+          showTitle: config.showIndividualTitles !== false,
+          syncScales: config.syncScales !== false
+        }
+      }
+    }
   }
 ]
 
@@ -875,6 +1065,9 @@ export const VISUAL_TYPE_MAPPING: { [key: string]: string } = {
   'stacked-column': 'stacked-column-chart',
   'gauge': 'gauge-chart',
   'funnel': 'funnel-chart',
+  'map': 'interactive-map',
+  'interactive-map': 'interactive-map',
+  'small-multiples': 'small-multiples',
   // Additional mappings
   'column-chart': 'column-chart',
   'bar-chart': 'bar-chart',

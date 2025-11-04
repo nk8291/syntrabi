@@ -1,5 +1,5 @@
-# PowerBI Web Replica - Docker Compose Configuration
-# Provides complete local development environment with all services
+# Syntra - Advanced Business Intelligence Platform
+# Complete local development environment with all services
 
 version: '3.8'
 
@@ -7,11 +7,11 @@ services:
   # PostgreSQL database for metadata storage
   postgres:
     image: postgres:15-alpine
-    container_name: powerbi_postgres
+    container_name: syntra_postgres
     environment:
-      POSTGRES_DB: powerbi
-      POSTGRES_USER: powerbi
-      POSTGRES_PASSWORD: powerbi123
+      POSTGRES_DB: syntra
+      POSTGRES_USER: syntra
+      POSTGRES_PASSWORD: syntra123
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
     ports:
       - "5432:5432"
@@ -19,7 +19,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U powerbi"]
+      test: ["CMD-SHELL", "pg_isready -U syntra"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -29,7 +29,7 @@ services:
   # Redis for caching and session storage  
   redis:
     image: redis:7-alpine
-    container_name: powerbi_redis
+    container_name: syntra_redis
     ports:
       - "6379:6379"
     volumes:
@@ -46,7 +46,7 @@ services:
   # MinIO S3-compatible object storage
   minio:
     image: minio/minio:latest
-    container_name: powerbi_minio
+    container_name: syntra_minio
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
@@ -69,10 +69,10 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: powerbi_backend
+    container_name: syntra_backend
     environment:
       # Database
-      DATABASE_URL: postgresql://powerbi:powerbi123@postgres:5432/powerbi
+      DATABASE_URL: postgresql://syntra:syntra123@postgres:5432/syntra
       REDIS_URL: redis://redis:6379
       
       # Authentication
@@ -84,7 +84,7 @@ services:
       S3_ENDPOINT: http://minio:9000
       S3_ACCESS_KEY: minioadmin
       S3_SECRET_KEY: minioadmin
-      S3_BUCKET: powerbi-data
+      S3_BUCKET: syntra-data
       
       # Application
       ENVIRONMENT: development
@@ -122,7 +122,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       target: development
-    container_name: powerbi_frontend
+    container_name: syntra_frontend
     environment:
       VITE_API_BASE_URL: http://localhost:8000
       VITE_WS_URL: ws://localhost:8000/ws
@@ -141,7 +141,7 @@ services:
   # Nginx reverse proxy (optional for production-like setup)
   nginx:
     image: nginx:alpine
-    container_name: powerbi_nginx
+    container_name: syntra_nginx
     ports:
       - "80:80"
       - "443:443"
@@ -161,14 +161,14 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: powerbi_worker
+    container_name: syntra_worker
     environment:
-      DATABASE_URL: postgresql://powerbi:powerbi123@postgres:5432/powerbi
+      DATABASE_URL: postgresql://syntra:syntra123@postgres:5432/syntra
       REDIS_URL: redis://redis:6379
       S3_ENDPOINT: http://minio:9000
       S3_ACCESS_KEY: minioadmin
       S3_SECRET_KEY: minioadmin
-      S3_BUCKET: powerbi-data
+      S3_BUCKET: syntra-data
       ENVIRONMENT: development
     volumes:
       - ./backend:/app
@@ -187,9 +187,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: powerbi_scheduler
+    container_name: syntra_scheduler
     environment:
-      DATABASE_URL: postgresql://powerbi:powerbi123@postgres:5432/powerbi
+      DATABASE_URL: postgresql://syntra:syntra123@postgres:5432/syntra
       REDIS_URL: redis://redis:6379
       ENVIRONMENT: development
     volumes:

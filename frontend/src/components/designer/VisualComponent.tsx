@@ -3,7 +3,7 @@
  * Individual visualization component with drag, resize, and selection capabilities
  */
 
-import React, { useRef, useState, useEffect } from 'react'
+import React, { useRef, useState, useEffect, useCallback } from 'react'
 import { useDrag } from 'react-dnd'
 import { 
   XMarkIcon, 
@@ -15,6 +15,21 @@ import {
 import { clsx } from 'clsx'
 import { Visual } from '@/types/report'
 import EChartsRenderer from '../charts/EChartsRenderer'
+import ShapeRenderer from '../charts/ShapeRenderer'
+import InteractiveMap from '../charts/InteractiveMap'
+import SmallMultiples from '../charts/SmallMultiples'
+
+// Throttle function for smooth drag performance
+const throttle = (func: Function, limit: number) => {
+  let inThrottle: boolean
+  return function(this: any, ...args: any[]) {
+    if (!inThrottle) {
+      func.apply(this, args)
+      inThrottle = true
+      setTimeout(() => inThrottle = false, limit)
+    }
+  }
+}
 
 interface VisualComponentProps {
   visual: Visual
@@ -40,10 +55,19 @@ const VisualComponent: React.FC<VisualComponentProps> = ({
   const [isResizing, setIsResizing] = useState(false)
   const [showContextMenu, setShowContextMenu] = useState(false)
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 })
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  const dragThrottled = useRef(throttle((position: { x: number; y: number }) => onMove(position), 16)) // 60fps
+  const resizeThrottled = useRef(throttle((size: { width: number; height: number }) => onResize(size), 16))
 
   const [{ isDraggedFromCanvas }, drag, dragPreview] = useDrag({
     type: 'visual',
-    item: { id: visual.id, visual },
+    item: () => {
+      setIsDragging(true)
+      return { id: visual.id, visual }
+    },
+    end: () => {
+      setIsDragging(false)
+    },
     collect: (monitor) => ({
       isDraggedFromCanvas: monitor.isDragging(),
     }),
@@ -52,30 +76,47 @@ const VisualComponent: React.FC<VisualComponentProps> = ({
   // Attach drag handle to the header
   drag(elementRef)
 
-  const handleMouseDown = (e: React.MouseEvent) => {
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.target === e.currentTarget || (e.target as Element).closest('.visual-header')) {
+      e.preventDefault()
+      e.stopPropagation()
+      
       setIsDragging(true)
       onSelect()
 
-      const startX = e.clientX - visual.position.x
-      const startY = e.clientY - visual.position.y
+      const rect = elementRef.current?.getBoundingClientRect()
+      if (!rect) return
+      
+      const offsetX = e.clientX - rect.left
+      const offsetY = e.clientY - rect.top
+      setDragOffset({ x: offsetX, y: offsetY })
 
       const handleMouseMove = (moveEvent: MouseEvent) => {
-        const newX = Math.max(0, moveEvent.clientX - startX)
-        const newY = Math.max(0, moveEvent.clientY - startY)
-        onMove({ x: newX, y: newY })
+        // Get canvas element for proper coordinate calculation
+        const canvas = document.querySelector('.design-canvas')
+        const canvasRect = canvas?.getBoundingClientRect()
+        if (!canvasRect) return
+        
+        const newX = Math.max(0, moveEvent.clientX - canvasRect.left - offsetX)
+        const newY = Math.max(0, moveEvent.clientY - canvasRect.top - offsetY)
+        
+        // Use throttled move for better performance
+        dragThrottled.current({ x: newX, y: newY })
       }
 
       const handleMouseUp = () => {
         setIsDragging(false)
         document.removeEventListener('mousemove', handleMouseMove)
         document.removeEventListener('mouseup', handleMouseUp)
+        document.body.style.userSelect = '' // Re-enable text selection
       }
-
+      
+      // Disable text selection during drag
+      document.body.style.userSelect = 'none'
       document.addEventListener('mousemove', handleMouseMove)
       document.addEventListener('mouseup', handleMouseUp)
     }
-  }
+  }, [onSelect, onMove, visual.position])
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -117,7 +158,7 @@ const VisualComponent: React.FC<VisualComponentProps> = ({
     setShowContextMenu(false)
   }
 
-  const handleResizeMouseDown = (e: React.MouseEvent, direction: string) => {
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent, direction: string) => {
     e.preventDefault()
     e.stopPropagation()
     setIsResizing(true)
@@ -135,24 +176,27 @@ const VisualComponent: React.FC<VisualComponentProps> = ({
       let newHeight = startHeight
 
       if (direction.includes('right')) {
-        newWidth = Math.max(100, startWidth + deltaX)
+        newWidth = Math.max(120, startWidth + deltaX) // Minimum width for usability
       }
       if (direction.includes('bottom')) {
-        newHeight = Math.max(80, startHeight + deltaY)
+        newHeight = Math.max(100, startHeight + deltaY) // Minimum height for header + content
       }
 
-      onResize({ width: newWidth, height: newHeight })
+      // Use throttled resize for better performance
+      resizeThrottled.current({ width: newWidth, height: newHeight })
     }
 
     const handleMouseUp = () => {
       setIsResizing(false)
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
+      document.body.style.userSelect = '' // Re-enable text selection
     }
 
+    document.body.style.userSelect = 'none' // Disable text selection during resize
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
-  }
+  }, [visual.position, onResize])
 
   // Generate sample data for the chart based on visual type
   // Only generate sample data if visual has no data binding configured
@@ -254,12 +298,29 @@ const VisualComponent: React.FC<VisualComponentProps> = ({
         
       case 'map':
       case 'filled-map':
+      case 'interactive-map':
         return [
           { location: 'New York', latitude: 40.7128, longitude: -74.0060, value: 850 },
           { location: 'Los Angeles', latitude: 34.0522, longitude: -118.2437, value: 620 },
           { location: 'Chicago', latitude: 41.8781, longitude: -87.6298, value: 430 },
           { location: 'Houston', latitude: 29.7604, longitude: -95.3698, value: 380 },
           { location: 'Miami', latitude: 25.7617, longitude: -80.1918, value: 290 },
+        ]
+
+      case 'small-multiples':
+        return [
+          { category: 'A', quarter: 'Q1', value: 100, region: 'North' },
+          { category: 'A', quarter: 'Q2', value: 120, region: 'North' },
+          { category: 'A', quarter: 'Q3', value: 110, region: 'North' },
+          { category: 'B', quarter: 'Q1', value: 80, region: 'North' },
+          { category: 'B', quarter: 'Q2', value: 90, region: 'North' },
+          { category: 'B', quarter: 'Q3', value: 95, region: 'North' },
+          { category: 'A', quarter: 'Q1', value: 150, region: 'South' },
+          { category: 'A', quarter: 'Q2', value: 140, region: 'South' },
+          { category: 'A', quarter: 'Q3', value: 160, region: 'South' },
+          { category: 'B', quarter: 'Q1', value: 70, region: 'South' },
+          { category: 'B', quarter: 'Q2', value: 75, region: 'South' },
+          { category: 'B', quarter: 'Q3', value: 85, region: 'South' },
         ]
         
       case 'table':
@@ -289,10 +350,20 @@ const VisualComponent: React.FC<VisualComponentProps> = ({
     <div
       ref={elementRef}
       className={clsx(
-        'absolute bg-white rounded-lg shadow-sm border-2 transition-all duration-200 cursor-move',
-        isSelected ? 'border-primary-500 shadow-md ring-2 ring-primary-200' : 'border-gray-200',
-        isDraggedFromCanvas && 'opacity-50',
-        (isDragging || isResizing) && 'select-none pointer-events-none'
+        'absolute bg-white rounded-lg border-2 cursor-move',
+        // Enhanced transitions and shadows
+        'transition-all duration-150 ease-out transform-gpu',
+        // Selection states with Power BI-style feedback
+        isSelected 
+          ? 'border-blue-500 shadow-lg ring-2 ring-blue-200/50 ring-offset-1' 
+          : 'border-gray-200 shadow-md hover:border-gray-300 hover:shadow-lg',
+        // Dragging states with better visual feedback
+        isDraggedFromCanvas && 'opacity-80 shadow-xl scale-105 rotate-1 z-50',
+        isDragging && 'shadow-2xl scale-105 z-40 cursor-grabbing',
+        // Disable interactions during operations
+        (isDragging || isResizing) && 'select-none pointer-events-none',
+        // Hover effects for better discoverability
+        !isDragging && !isResizing && 'hover:shadow-lg hover:border-gray-300'
       )}
       style={{
         left: visual.position.x,
@@ -358,38 +429,94 @@ const VisualComponent: React.FC<VisualComponentProps> = ({
       {/* Visual Content */}
       <div className="p-3 h-full">
         <div className="w-full h-full">
-          <EChartsRenderer
-            visual={visual}
-            data={getSampleData()}
-            width={visual.position.width - 24} // subtract padding
-            height={visual.position.height - 80} // subtract header and padding
-          />
+          {visual.type === 'shape' || visual.type === 'text_box' || visual.type === 'button' || visual.type === 'image' ? (
+            <ShapeRenderer
+              visual={visual}
+              width={visual.position.width - 24} // subtract padding
+              height={visual.position.height - 80} // subtract header and padding
+              isEditable={isSelected}
+            />
+          ) : visual.type === 'interactive-map' ? (
+            <InteractiveMap
+              data={getSampleData().map(d => ({
+                id: `${d.location || 'location'}-${Math.random()}`,
+                latitude: d.latitude || 0,
+                longitude: d.longitude || 0,
+                value: d.value,
+                label: d.location,
+                category: 'Sample Data'
+              }))}
+              width={visual.position.width - 24}
+              height={visual.position.height - 80}
+              config={{
+                center: [39.8283, -98.5795], // Center of US
+                zoom: 4,
+                showLegend: true
+              }}
+              onMarkerClick={(point) => {
+                console.log('Marker clicked:', point)
+              }}
+            />
+          ) : visual.type === 'small-multiples' ? (
+            <SmallMultiples
+              visual={{
+                ...visual,
+                type: 'column-chart' // Use column chart as base for small multiples
+              }}
+              data={getSampleData()}
+              config={{
+                id: `sm_${visual.id}`,
+                name: 'Sample Small Multiples',
+                splitBy: 'region',
+                columns: 2,
+                maxRows: 2,
+                showTitle: true
+              }}
+              width={visual.position.width - 24}
+              height={visual.position.height - 80}
+              onChartClick={(key, data) => {
+                console.log('Small multiple clicked:', key, data)
+              }}
+            />
+          ) : (
+            <EChartsRenderer
+              visual={visual}
+              data={getSampleData()}
+              width={visual.position.width - 24} // subtract padding
+              height={visual.position.height - 80} // subtract header and padding
+            />
+          )}
         </div>
       </div>
 
-      {/* Resize Handles */}
+      {/* Resize Handles - Power BI Style */}
       {isSelected && !isDraggedFromCanvas && (
         <>
-          {/* Bottom-right resize handle */}
+          {/* Corner resize handles */}
           <div
-            className="absolute bottom-0 right-0 w-3 h-3 bg-primary-500 cursor-se-resize"
+            className="absolute -bottom-1 -right-1 w-4 h-4 bg-blue-500 border-2 border-white rounded cursor-se-resize hover:bg-blue-600 transition-colors shadow-sm"
             onMouseDown={(e) => handleResizeMouseDown(e, 'bottom-right')}
-            style={{
-              clipPath: 'polygon(100% 0%, 0% 100%, 100% 100%)'
-            }}
           />
           
-          {/* Right resize handle */}
+          {/* Edge resize handles */}
           <div
-            className="absolute top-6 right-0 bottom-3 w-1 cursor-e-resize hover:bg-primary-500 hover:bg-opacity-50"
+            className="absolute top-6 -right-1 bottom-6 w-2 cursor-e-resize group"
             onMouseDown={(e) => handleResizeMouseDown(e, 'right')}
-          />
+          >
+            <div className="w-full h-full bg-blue-500/0 hover:bg-blue-500/30 rounded transition-colors" />
+          </div>
           
-          {/* Bottom resize handle */}
           <div
-            className="absolute left-3 right-3 bottom-0 h-1 cursor-s-resize hover:bg-primary-500 hover:bg-opacity-50"
+            className="absolute -bottom-1 left-6 right-6 h-2 cursor-s-resize group"
             onMouseDown={(e) => handleResizeMouseDown(e, 'bottom')}
-          />
+          >
+            <div className="w-full h-full bg-blue-500/0 hover:bg-blue-500/30 rounded transition-colors" />
+          </div>
+          
+          {/* Corner dots for better visibility */}
+          <div className="absolute -top-1 -left-1 w-2 h-2 bg-blue-500 border border-white rounded-full" />
+          <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 border border-white rounded-full" />
+          <div className="absolute -bottom-1 -left-1 w-2 h-2 bg-blue-500 border border-white rounded-full" />
         </>
       )}
 

@@ -5,6 +5,7 @@
 
 import React, { useCallback } from 'react'
 import { useDrop } from 'react-dnd'
+import { clsx } from 'clsx'
 import { Visual, ReportPage, VisualType } from '@/types/report'
 import VisualComponent from './VisualComponent'
 
@@ -121,7 +122,12 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({
     <div className="w-full h-full overflow-auto bg-gray-50">
       <div
         ref={drop}
-        className={`design-canvas canvas relative transition-colors duration-200 ${isOver ? 'drop-zone drag-over bg-blue-50 border-2 border-dashed border-blue-300' : 'bg-white'}`}
+        className={clsx(
+          'design-canvas canvas relative transition-all duration-200 ease-out',
+          isOver 
+            ? 'drop-zone drag-over bg-blue-50/50 border-2 border-dashed border-blue-400 shadow-inner' 
+            : 'bg-white border border-transparent'
+        )}
         onClick={handleCanvasClick}
         style={{
           minWidth: '100%',
@@ -164,11 +170,16 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({
         </div>
       )}
 
-      {/* Drop zone indicator */}
+      {/* Enhanced drop zone indicator */}
       {isOver && (
-        <div className="absolute inset-0 border-2 border-dashed border-primary-400 bg-primary-50 bg-opacity-50 pointer-events-none">
-          <div className="absolute inset-0 flex items-center justify-center text-primary-600 font-medium">
-            Drop here to add visual
+        <div className="absolute inset-4 border-2 border-dashed border-blue-400 bg-blue-50/30 rounded-lg pointer-events-none animate-pulse">
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="bg-white/90 backdrop-blur px-6 py-3 rounded-lg border border-blue-200 shadow-lg">
+              <div className="flex items-center space-x-2 text-blue-600 font-medium">
+                <div className="w-2 h-2 bg-blue-500 rounded-full animate-ping"></div>
+                <span>Drop here to add visual</span>
+              </div>
+            </div>
           </div>
         </div>
       )}

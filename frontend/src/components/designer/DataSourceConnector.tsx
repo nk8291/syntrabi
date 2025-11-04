@@ -21,18 +21,19 @@ import {
   ExclamationTriangleIcon,
   InformationCircleIcon
 } from '@heroicons/react/24/outline'
+import { datasetService } from '../../services/datasetService'
 
-export type DataSourceType = 
+export type DataSourceType =
   // Databases
   | 'sql-server' | 'azure-sql' | 'postgresql' | 'mysql' | 'oracle' | 'teradata' | 'mongodb' | 'mariadb'
-  // Cloud Platforms  
-  | 'azure-analysis-services' | 'power-bi-datasets' | 'google-bigquery' | 'amazon-redshift' | 'snowflake'
+  // Cloud Platforms
+  | 'azure-analysis-services' | 'power-bi-datasets' | 'google-bigquery' | 'amazon-redshift' | 'snowflake' | 'databricks' | 'azure-databricks'
   // Files
   | 'excel' | 'csv' | 'text' | 'xml' | 'json' | 'parquet' | 'pdf' | 'folder' | 'sharepoint-folder'
   // Web & APIs
   | 'web' | 'odata' | 'rest-api' | 'sharepoint-list' | 'google-sheets'
   // Other
-  | 'odbc' | 'ole-db' | 'blank-query' | 'spark' | 'fhir'
+  | 'odbc' | 'jdbc' | 'ole-db' | 'blank-query' | 'spark' | 'fhir'
 
 export type ConnectionMode = 'import' | 'directquery' | 'live-connection'
 
@@ -63,207 +64,308 @@ interface ConnectionConfig {
 }
 
 interface DataSourceConnectorProps {
-  onConnect: (source: DataSource, config: ConnectionConfig, mode: ConnectionMode) => void
+  onConnect: (source: DataSource, config: ConnectionConfig, mode: ConnectionMode, datasetId?: string) => void
   onCancel: () => void
+  onClose?: () => void
   isOpen: boolean
+  workspaceId: string
 }
 
 const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
   onConnect,
   onCancel,
-  isOpen
+  onClose,
+  isOpen,
+  workspaceId
 }) => {
-  const [selectedCategory, setSelectedCategory] = useState<string>('databases')
+  const handleCancel = () => {
+    if (onClose) {
+      onClose()
+    }
+    onCancel()
+  }
+  const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [selectedSource, setSelectedSource] = useState<DataSource | null>(null)
   const [connectionConfig, setConnectionConfig] = useState<ConnectionConfig>({})
   const [connectionMode, setConnectionMode] = useState<ConnectionMode>('import')
   const [isConnecting, setIsConnecting] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
+  const [errorMessage, setErrorMessage] = useState<string>('')
   const [step, setStep] = useState<'select-source' | 'configure' | 'preview'>('select-source')
 
   const dataSources: DataSource[] = [
-    // Database Sources
-    { 
-      type: 'sql-server', 
-      name: 'SQL Server', 
-      icon: ServerIcon, 
-      category: 'databases',
+    // ========== DATABASE SOURCES ==========
+    {
+      type: 'sql-server',
+      name: 'SQL Server',
+      icon: ServerIcon,
+      category: 'database',
       description: 'Connect to Microsoft SQL Server databases',
       supportedModes: ['import', 'directquery'],
       requiresGateway: true
     },
-    { 
-      type: 'azure-sql', 
-      name: 'Azure SQL Database', 
-      icon: CloudIcon, 
-      category: 'databases',
+    {
+      type: 'azure-sql',
+      name: 'Azure SQL Database',
+      icon: CloudIcon,
+      category: 'database',
       description: 'Connect to Azure SQL Database in the cloud',
       supportedModes: ['import', 'directquery'],
       cloudService: true
     },
-    { 
-      type: 'postgresql', 
-      name: 'PostgreSQL', 
-      icon: CircleStackIcon, 
-      category: 'databases',
+    {
+      type: 'postgresql',
+      name: 'PostgreSQL',
+      icon: CircleStackIcon,
+      category: 'database',
       description: 'Connect to PostgreSQL databases',
       supportedModes: ['import', 'directquery'],
       requiresGateway: true
     },
-    { 
-      type: 'mysql', 
-      name: 'MySQL', 
-      icon: CircleStackIcon, 
-      category: 'databases',
+    {
+      type: 'mysql',
+      name: 'MySQL',
+      icon: CircleStackIcon,
+      category: 'database',
       description: 'Connect to MySQL databases',
       supportedModes: ['import', 'directquery'],
       requiresGateway: true
     },
-    { 
-      type: 'oracle', 
-      name: 'Oracle Database', 
-      icon: CircleStackIcon, 
-      category: 'databases',
+    {
+      type: 'mariadb',
+      name: 'MariaDB',
+      icon: CircleStackIcon,
+      category: 'database',
+      description: 'Connect to MariaDB databases',
+      supportedModes: ['import', 'directquery'],
+      requiresGateway: true
+    },
+    {
+      type: 'oracle',
+      name: 'Oracle Database',
+      icon: CircleStackIcon,
+      category: 'database',
       description: 'Connect to Oracle databases',
       supportedModes: ['import', 'directquery'],
       requiresGateway: true
     },
-    
-    // Cloud Analytics
-    { 
-      type: 'google-bigquery', 
-      name: 'Google BigQuery', 
-      icon: CloudIcon, 
-      category: 'cloud',
+    {
+      type: 'teradata',
+      name: 'Teradata',
+      icon: CircleStackIcon,
+      category: 'database',
+      description: 'Connect to Teradata databases',
+      supportedModes: ['import', 'directquery'],
+      requiresGateway: true
+    },
+
+    // ========== AZURE (CLOUD) SOURCES ==========
+    {
+      type: 'google-bigquery',
+      name: 'Google BigQuery',
+      icon: CloudIcon,
+      category: 'azure',
       description: 'Connect to Google BigQuery data warehouse',
       supportedModes: ['import', 'directquery'],
       cloudService: true
     },
-    { 
-      type: 'snowflake', 
-      name: 'Snowflake', 
-      icon: CloudIcon, 
-      category: 'cloud',
+    {
+      type: 'snowflake',
+      name: 'Snowflake',
+      icon: CloudIcon,
+      category: 'azure',
       description: 'Connect to Snowflake cloud data platform',
       supportedModes: ['import', 'directquery'],
       cloudService: true,
       isPremium: true
     },
-    { 
-      type: 'amazon-redshift', 
-      name: 'Amazon Redshift', 
-      icon: CloudIcon, 
-      category: 'cloud',
+    {
+      type: 'amazon-redshift',
+      name: 'Amazon Redshift',
+      icon: CloudIcon,
+      category: 'azure',
       description: 'Connect to Amazon Redshift data warehouse',
       supportedModes: ['import', 'directquery'],
       cloudService: true
     },
-    
-    // File Sources
-    { 
-      type: 'excel', 
-      name: 'Excel Workbook', 
-      icon: DocumentIcon, 
-      category: 'files',
+    {
+      type: 'databricks',
+      name: 'Databricks',
+      icon: CloudIcon,
+      category: 'azure',
+      description: 'Connect to Databricks SQL Warehouse',
+      supportedModes: ['import', 'directquery'],
+      cloudService: true
+    },
+    {
+      type: 'azure-databricks',
+      name: 'Azure Databricks',
+      icon: CloudIcon,
+      category: 'azure',
+      description: 'Connect to Azure Databricks',
+      supportedModes: ['import', 'directquery'],
+      cloudService: true
+    },
+    {
+      type: 'spark',
+      name: 'Spark',
+      icon: CloudIcon,
+      category: 'azure',
+      description: 'Connect to Apache Spark cluster',
+      supportedModes: ['import', 'directquery'],
+      cloudService: true
+    },
+
+    // ========== FILE SOURCES ==========
+    {
+      type: 'excel',
+      name: 'Excel Workbook',
+      icon: DocumentIcon,
+      category: 'file',
       description: 'Import data from Excel files (.xlsx, .xls)',
       supportedModes: ['import']
     },
-    { 
-      type: 'csv', 
-      name: 'Text/CSV', 
-      icon: DocumentIcon, 
-      category: 'files',
+    {
+      type: 'csv',
+      name: 'Text/CSV',
+      icon: DocumentIcon,
+      category: 'file',
       description: 'Import from CSV, TSV, and other delimited files',
       supportedModes: ['import']
     },
-    { 
-      type: 'json', 
-      name: 'JSON', 
-      icon: DocumentIcon, 
-      category: 'files',
+    {
+      type: 'json',
+      name: 'JSON',
+      icon: DocumentIcon,
+      category: 'file',
       description: 'Import from JSON files',
       supportedModes: ['import']
     },
-    { 
-      type: 'xml', 
-      name: 'XML', 
-      icon: DocumentIcon, 
-      category: 'files',
+    {
+      type: 'xml',
+      name: 'XML',
+      icon: DocumentIcon,
+      category: 'file',
       description: 'Import from XML files',
       supportedModes: ['import']
     },
-    { 
-      type: 'parquet', 
-      name: 'Parquet', 
-      icon: DocumentIcon, 
-      category: 'files',
+    {
+      type: 'parquet',
+      name: 'Parquet',
+      icon: DocumentIcon,
+      category: 'file',
       description: 'Import from Parquet files',
       supportedModes: ['import']
     },
-    { 
-      type: 'folder', 
-      name: 'Folder', 
-      icon: FolderIcon, 
-      category: 'files',
+    {
+      type: 'pdf',
+      name: 'PDF',
+      icon: DocumentIcon,
+      category: 'file',
+      description: 'Extract tables from PDF files',
+      supportedModes: ['import']
+    },
+    {
+      type: 'folder',
+      name: 'Folder',
+      icon: FolderIcon,
+      category: 'file',
       description: 'Combine multiple files from a folder',
       supportedModes: ['import']
     },
-    
-    // Web Sources
-    { 
-      type: 'web', 
-      name: 'Web', 
-      icon: GlobeAltIcon, 
-      category: 'web',
+
+    // ========== ONLINE SERVICES SOURCES ==========
+    {
+      type: 'web',
+      name: 'Web',
+      icon: GlobeAltIcon,
+      category: 'online-services',
       description: 'Get data from web pages and APIs',
       supportedModes: ['import']
     },
-    { 
-      type: 'rest-api', 
-      name: 'REST API', 
-      icon: GlobeAltIcon, 
-      category: 'web',
+    {
+      type: 'odata',
+      name: 'OData Feed',
+      icon: GlobeAltIcon,
+      category: 'online-services',
+      description: 'Connect to OData feeds',
+      supportedModes: ['import']
+    },
+    {
+      type: 'rest-api',
+      name: 'REST API',
+      icon: GlobeAltIcon,
+      category: 'online-services',
       description: 'Connect to REST APIs',
       supportedModes: ['import']
     },
-    { 
-      type: 'google-sheets', 
-      name: 'Google Sheets', 
-      icon: DocumentIcon, 
-      category: 'web',
+    {
+      type: 'google-sheets',
+      name: 'Google Sheets',
+      icon: DocumentIcon,
+      category: 'online-services',
       description: 'Import from Google Sheets',
       supportedModes: ['import']
     },
-    
-    // Other Sources
-    { 
-      type: 'blank-query', 
-      name: 'Blank Query', 
-      icon: BeakerIcon, 
-      category: 'other',
-      description: 'Start with a blank query using Power Query M',
+    {
+      type: 'sharepoint-list',
+      name: 'SharePoint List',
+      icon: TableCellsIcon,
+      category: 'online-services',
+      description: 'Connect to SharePoint Lists',
       supportedModes: ['import']
     },
-    { 
-      type: 'odbc', 
-      name: 'ODBC', 
-      icon: LinkIcon, 
+
+    // ========== OTHER SOURCES ==========
+    {
+      type: 'odbc',
+      name: 'ODBC',
+      icon: LinkIcon,
       category: 'other',
       description: 'Connect using ODBC drivers',
       supportedModes: ['import', 'directquery'],
       requiresGateway: true
     },
+    {
+      type: 'jdbc',
+      name: 'JDBC',
+      icon: LinkIcon,
+      category: 'other',
+      description: 'Connect using JDBC drivers',
+      supportedModes: ['import'],
+      requiresGateway: true
+    },
+    {
+      type: 'ole-db',
+      name: 'OLE DB',
+      icon: LinkIcon,
+      category: 'other',
+      description: 'Connect using OLE DB providers',
+      supportedModes: ['import', 'directquery'],
+      requiresGateway: true
+    },
+    {
+      type: 'blank-query',
+      name: 'Blank Query',
+      icon: BeakerIcon,
+      category: 'other',
+      description: 'Start with a blank query using Power Query M',
+      supportedModes: ['import']
+    },
   ]
 
   const categories = [
-    { id: 'databases', name: 'Database', icon: CircleStackIcon },
-    { id: 'cloud', name: 'Azure', icon: CloudIcon },
-    { id: 'files', name: 'File', icon: DocumentIcon },
-    { id: 'web', name: 'Online Services', icon: GlobeAltIcon },
+    { id: 'all', name: 'All', icon: TableCellsIcon },
+    { id: 'file', name: 'File', icon: DocumentIcon },
+    { id: 'database', name: 'Database', icon: CircleStackIcon },
+    { id: 'azure', name: 'Azure', icon: CloudIcon },
+    { id: 'online-services', name: 'Online Services', icon: GlobeAltIcon },
     { id: 'other', name: 'Other', icon: CogIcon },
   ]
 
-  const filteredSources = dataSources.filter(source => source.category === selectedCategory)
+  const filteredSources = selectedCategory === 'all'
+    ? dataSources
+    : dataSources.filter(source => source.category === selectedCategory)
 
   const handleSourceSelect = (source: DataSource) => {
     setSelectedSource(source)
@@ -297,44 +399,529 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
   }
 
   const handleConnect = async () => {
-    if (selectedSource) {
-      setIsConnecting(true)
-      try {
-        // If it's a file upload, process the file
-        if (selectedSource.category === 'files' && connectionConfig.file) {
-          const formData = new FormData()
-          formData.append('file', connectionConfig.file)
-          formData.append('datasetName', connectionConfig.fileName?.split('.')[0] || 'New Dataset')
-          formData.append('workspaceId', 'demo-workspace')
-          
-          // Simulate file upload API call
-          await new Promise(resolve => setTimeout(resolve, 1500))
-          
-          // Create a mock dataset response
-          const mockDataset = {
-            id: `dataset-${Date.now()}`,
-            name: connectionConfig.fileName?.split('.')[0] || 'New Dataset',
-            tables: [{
-              name: 'Table1',
-              columns: [
-                { name: 'ID', type: 'number' },
-                { name: 'Name', type: 'string' },
-                { name: 'Sales', type: 'number' },
-                { name: 'Date', type: 'date' }
-              ]
-            }]
-          }
-          
-          onConnect(selectedSource, { ...connectionConfig, dataset: mockDataset }, connectionMode)
-        } else {
-          onConnect(selectedSource, connectionConfig, connectionMode)
-        }
-      } catch (error) {
-        console.error('Connection failed:', error)
-        setConnectionStatus('error')
-      } finally {
-        setIsConnecting(false)
+    if (!selectedSource) return
+
+    setIsConnecting(true)
+    setConnectionStatus('idle')
+    setErrorMessage('')
+
+    try {
+      // Handle file uploads
+      if (selectedSource.category === 'file' && connectionConfig.file) {
+        const file = connectionConfig.file as File
+        const datasetName = connectionConfig.fileName?.split('.')[0] || 'New Dataset'
+
+        console.log('Uploading file dataset:', { workspaceId, datasetName, fileName: file.name })
+
+        // Upload via dataset service
+        const dataset = await datasetService.uploadDataset(workspaceId, file, datasetName)
+
+        console.log('Dataset uploaded successfully:', dataset)
+        setConnectionStatus('success')
+
+        // Call onConnect with dataset ID
+        onConnect(selectedSource, { ...connectionConfig, dataset }, connectionMode, dataset.id)
       }
+      // Handle database connections
+      else if (selectedSource.category === 'database' && connectionConfig.server) {
+        const datasetName = connectionConfig.database || `${selectedSource.name} Connection`
+
+        console.log('Creating database dataset:', { workspaceId, datasetName, connectorType: selectedSource.type })
+
+        // Create database dataset via service
+        const dataset = await datasetService.createDatabaseDataset(
+          workspaceId,
+          datasetName,
+          selectedSource.type,
+          {
+            server: connectionConfig.server,
+            database: connectionConfig.database,
+            port: connectionConfig.port,
+            username: connectionConfig.username,
+            password: connectionConfig.password,
+            connectionString: connectionConfig.connectionString
+          }
+        )
+
+        console.log('Database dataset created successfully:', dataset)
+        setConnectionStatus('success')
+
+        onConnect(selectedSource, { ...connectionConfig, dataset }, connectionMode, dataset.id)
+      }
+      // Handle other connection types
+      else {
+        console.log('Creating connection with config:', connectionConfig)
+        onConnect(selectedSource, connectionConfig, connectionMode)
+      }
+    } catch (error: any) {
+      console.error('Connection failed:', error)
+      setConnectionStatus('error')
+      setErrorMessage(error.response?.data?.detail || error.message || 'Failed to connect to data source')
+    } finally {
+      setIsConnecting(false)
+    }
+  }
+
+  // Render connector-specific configuration form
+  const renderConnectionForm = () => {
+    if (!selectedSource) return null
+
+    const inputClass = "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+    const labelClass = "block text-sm font-medium text-gray-700 mb-1"
+
+    switch (selectedSource.type) {
+      // SQL Server / Azure SQL
+      case 'sql-server':
+      case 'azure-sql':
+        return (
+          <>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <label className={labelClass}>Server *</label>
+                <input type="text" value={connectionConfig.server || ''} onChange={(e) => handleConfigChange('server', e.target.value)} placeholder="servername.database.windows.net" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Database</label>
+                <input type="text" value={connectionConfig.database || ''} onChange={(e) => handleConfigChange('database', e.target.value)} placeholder="database name" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Port</label>
+                <input type="number" value={connectionConfig.port || 1433} onChange={(e) => handleConfigChange('port', e.target.value)} className={inputClass} />
+              </div>
+            </div>
+            <div className="bg-gray-50 p-3 rounded">
+              <h4 className="text-sm font-medium text-gray-700 mb-2">Authentication</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className={labelClass}>Username</label>
+                  <input type="text" value={connectionConfig.username || ''} onChange={(e) => handleConfigChange('username', e.target.value)} className={inputClass} />
+                </div>
+                <div>
+                  <label className={labelClass}>Password</label>
+                  <input type="password" value={connectionConfig.password || ''} onChange={(e) => handleConfigChange('password', e.target.value)} className={inputClass} />
+                </div>
+              </div>
+            </div>
+          </>
+        )
+
+      // PostgreSQL / MySQL / MariaDB / Oracle
+      case 'postgresql':
+      case 'mysql':
+      case 'mariadb':
+      case 'oracle':
+        return (
+          <>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>Host *</label>
+                <input type="text" value={connectionConfig.host || ''} onChange={(e) => handleConfigChange('host', e.target.value)} placeholder="localhost" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Port</label>
+                <input type="number" value={connectionConfig.port || (selectedSource.type === 'postgresql' ? 5432 : selectedSource.type === 'oracle' ? 1521 : 3306)} onChange={(e) => handleConfigChange('port', e.target.value)} className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Database *</label>
+                <input type="text" value={connectionConfig.database || ''} onChange={(e) => handleConfigChange('database', e.target.value)} placeholder="database name" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Username *</label>
+                <input type="text" value={connectionConfig.username || ''} onChange={(e) => handleConfigChange('username', e.target.value)} className={inputClass} />
+              </div>
+              <div className="col-span-2">
+                <label className={labelClass}>Password *</label>
+                <input type="password" value={connectionConfig.password || ''} onChange={(e) => handleConfigChange('password', e.target.value)} className={inputClass} />
+              </div>
+            </div>
+          </>
+        )
+
+      // Teradata
+      case 'teradata':
+        return (
+          <>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>Server *</label>
+                <input type="text" value={connectionConfig.server || ''} onChange={(e) => handleConfigChange('server', e.target.value)} placeholder="teradata.company.com" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Database</label>
+                <input type="text" value={connectionConfig.database || ''} onChange={(e) => handleConfigChange('database', e.target.value)} className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Username *</label>
+                <input type="text" value={connectionConfig.username || ''} onChange={(e) => handleConfigChange('username', e.target.value)} className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Password *</label>
+                <input type="password" value={connectionConfig.password || ''} onChange={(e) => handleConfigChange('password', e.target.value)} className={inputClass} />
+              </div>
+            </div>
+          </>
+        )
+
+      // Databricks / Azure Databricks
+      case 'databricks':
+      case 'azure-databricks':
+        return (
+          <>
+            <div className="space-y-3">
+              <div>
+                <label className={labelClass}>Server Hostname *</label>
+                <input type="text" value={connectionConfig.server_hostname || ''} onChange={(e) => handleConfigChange('server_hostname', e.target.value)} placeholder="adb-1234567890123456.7.azuredatabricks.net" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>HTTP Path *</label>
+                <input type="text" value={connectionConfig.http_path || ''} onChange={(e) => handleConfigChange('http_path', e.target.value)} placeholder="/sql/1.0/warehouses/abc123" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Access Token *</label>
+                <input type="password" value={connectionConfig.access_token || ''} onChange={(e) => handleConfigChange('access_token', e.target.value)} placeholder="dapi..." className={inputClass} />
+              </div>
+            </div>
+          </>
+        )
+
+      // Snowflake
+      case 'snowflake':
+        return (
+          <>
+            <div className="space-y-3">
+              <div>
+                <label className={labelClass}>Account *</label>
+                <input type="text" value={connectionConfig.account || ''} onChange={(e) => handleConfigChange('account', e.target.value)} placeholder="account.region" className={inputClass} />
+                <p className="text-xs text-gray-500 mt-1">Format: account.region (e.g., xy12345.us-east-1)</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className={labelClass}>Username *</label>
+                  <input type="text" value={connectionConfig.username || ''} onChange={(e) => handleConfigChange('username', e.target.value)} className={inputClass} />
+                </div>
+                <div>
+                  <label className={labelClass}>Password *</label>
+                  <input type="password" value={connectionConfig.password || ''} onChange={(e) => handleConfigChange('password', e.target.value)} className={inputClass} />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className={labelClass}>Database</label>
+                  <input type="text" value={connectionConfig.database || ''} onChange={(e) => handleConfigChange('database', e.target.value)} className={inputClass} />
+                </div>
+                <div>
+                  <label className={labelClass}>Schema</label>
+                  <input type="text" value={connectionConfig.schema || ''} onChange={(e) => handleConfigChange('schema', e.target.value)} placeholder="PUBLIC" className={inputClass} />
+                </div>
+                <div>
+                  <label className={labelClass}>Warehouse</label>
+                  <input type="text" value={connectionConfig.warehouse || ''} onChange={(e) => handleConfigChange('warehouse', e.target.value)} className={inputClass} />
+                </div>
+              </div>
+            </div>
+          </>
+        )
+
+      // BigQuery
+      case 'google-bigquery':
+        return (
+          <>
+            <div className="space-y-3">
+              <div>
+                <label className={labelClass}>Project ID *</label>
+                <input type="text" value={connectionConfig.project_id || ''} onChange={(e) => handleConfigChange('project_id', e.target.value)} placeholder="my-project-123" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Dataset</label>
+                <input type="text" value={connectionConfig.dataset || ''} onChange={(e) => handleConfigChange('dataset', e.target.value)} placeholder="dataset_name" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Service Account JSON</label>
+                <textarea value={connectionConfig.credentials || ''} onChange={(e) => handleConfigChange('credentials', e.target.value)} placeholder='{"type": "service_account", ...}' className={inputClass + " h-24"} />
+                <p className="text-xs text-gray-500 mt-1">Paste your service account JSON key</p>
+              </div>
+            </div>
+          </>
+        )
+
+      // Redshift
+      case 'amazon-redshift':
+        return (
+          <>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <label className={labelClass}>Server *</label>
+                <input type="text" value={connectionConfig.server || ''} onChange={(e) => handleConfigChange('server', e.target.value)} placeholder="cluster.abc123.region.redshift.amazonaws.com" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Database *</label>
+                <input type="text" value={connectionConfig.database || ''} onChange={(e) => handleConfigChange('database', e.target.value)} className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Port</label>
+                <input type="number" value={connectionConfig.port || 5439} onChange={(e) => handleConfigChange('port', e.target.value)} className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Username *</label>
+                <input type="text" value={connectionConfig.username || ''} onChange={(e) => handleConfigChange('username', e.target.value)} className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Password *</label>
+                <input type="password" value={connectionConfig.password || ''} onChange={(e) => handleConfigChange('password', e.target.value)} className={inputClass} />
+              </div>
+            </div>
+          </>
+        )
+
+      // Spark
+      case 'spark':
+        return (
+          <>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>Host *</label>
+                <input type="text" value={connectionConfig.host || ''} onChange={(e) => handleConfigChange('host', e.target.value)} placeholder="localhost" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Port</label>
+                <input type="number" value={connectionConfig.port || 10000} onChange={(e) => handleConfigChange('port', e.target.value)} className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Database</label>
+                <input type="text" value={connectionConfig.database || 'default'} onChange={(e) => handleConfigChange('database', e.target.value)} className={inputClass} />
+              </div>
+            </div>
+          </>
+        )
+
+      // File uploads (Excel, CSV, JSON, XML, Parquet, PDF)
+      case 'excel':
+      case 'csv':
+      case 'json':
+      case 'xml':
+      case 'parquet':
+      case 'pdf':
+        return (
+          <div className="space-y-3">
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-400 transition-colors">
+              <input
+                type="file"
+                id="file-upload"
+                className="hidden"
+                accept={
+                  selectedSource.type === 'excel' ? '.xlsx,.xls' :
+                  selectedSource.type === 'csv' ? '.csv,.tsv,.txt' :
+                  selectedSource.type === 'json' ? '.json' :
+                  selectedSource.type === 'xml' ? '.xml' :
+                  selectedSource.type === 'parquet' ? '.parquet' :
+                  selectedSource.type === 'pdf' ? '.pdf' : '*'
+                }
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) {
+                    handleConfigChange('file', file)
+                    handleConfigChange('fileName', file.name)
+                  }
+                }}
+              />
+              <label htmlFor="file-upload" className="cursor-pointer">
+                <DocumentIcon className="h-16 w-16 text-gray-400 mx-auto mb-3" />
+                <p className="text-sm font-medium text-gray-700 mb-1">
+                  {connectionConfig.fileName || `Click to upload ${selectedSource.name}`}
+                </p>
+                <p className="text-xs text-gray-500">or drag and drop</p>
+              </label>
+            </div>
+          </div>
+        )
+
+      // Folder
+      case 'folder':
+        return (
+          <div className="space-y-3">
+            <div>
+              <label className={labelClass}>Folder Path *</label>
+              <input type="text" value={connectionConfig.folderPath || ''} onChange={(e) => handleConfigChange('folderPath', e.target.value)} placeholder="C:\Data or /home/user/data" className={inputClass} />
+              <p className="text-xs text-gray-500 mt-1">All files in this folder will be combined</p>
+            </div>
+          </div>
+        )
+
+      // Web
+      case 'web':
+        return (
+          <div className="space-y-3">
+            <div>
+              <label className={labelClass}>URL *</label>
+              <input type="url" value={connectionConfig.url || ''} onChange={(e) => handleConfigChange('url', e.target.value)} placeholder="https://example.com/data" className={inputClass} />
+            </div>
+          </div>
+        )
+
+      // OData
+      case 'odata':
+        return (
+          <>
+            <div className="space-y-3">
+              <div>
+                <label className={labelClass}>OData URL *</label>
+                <input type="url" value={connectionConfig.url || ''} onChange={(e) => handleConfigChange('url', e.target.value)} placeholder="https://services.odata.org/V4/TripPinService/" className={inputClass} />
+              </div>
+              <div className="bg-gray-50 p-3 rounded">
+                <h4 className="text-sm font-medium text-gray-700 mb-2">Authentication (Optional)</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelClass}>Username</label>
+                    <input type="text" value={connectionConfig.username || ''} onChange={(e) => handleConfigChange('username', e.target.value)} className={inputClass} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Password</label>
+                    <input type="password" value={connectionConfig.password || ''} onChange={(e) => handleConfigChange('password', e.target.value)} className={inputClass} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )
+
+      // REST API
+      case 'rest-api':
+        return (
+          <>
+            <div className="space-y-3">
+              <div>
+                <label className={labelClass}>API Endpoint *</label>
+                <input type="url" value={connectionConfig.url || ''} onChange={(e) => handleConfigChange('url', e.target.value)} placeholder="https://api.example.com/v1/data" className={inputClass} />
+              </div>
+              <div className="bg-gray-50 p-3 rounded">
+                <h4 className="text-sm font-medium text-gray-700 mb-2">Authentication</h4>
+                <div className="space-y-3">
+                  <div>
+                    <label className={labelClass}>Auth Type</label>
+                    <select value={connectionConfig.authType || 'none'} onChange={(e) => handleConfigChange('authType', e.target.value)} className={inputClass}>
+                      <option value="none">None</option>
+                      <option value="bearer">Bearer Token</option>
+                      <option value="apikey">API Key</option>
+                      <option value="basic">Basic Auth</option>
+                    </select>
+                  </div>
+                  {connectionConfig.authType === 'bearer' && (
+                    <div>
+                      <label className={labelClass}>Token</label>
+                      <input type="password" value={connectionConfig.token || ''} onChange={(e) => handleConfigChange('token', e.target.value)} className={inputClass} />
+                    </div>
+                  )}
+                  {connectionConfig.authType === 'apikey' && (
+                    <div>
+                      <label className={labelClass}>API Key</label>
+                      <input type="password" value={connectionConfig.apiKey || ''} onChange={(e) => handleConfigChange('apiKey', e.target.value)} className={inputClass} />
+                    </div>
+                  )}
+                  {connectionConfig.authType === 'basic' && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className={labelClass}>Username</label>
+                        <input type="text" value={connectionConfig.username || ''} onChange={(e) => handleConfigChange('username', e.target.value)} className={inputClass} />
+                      </div>
+                      <div>
+                        <label className={labelClass}>Password</label>
+                        <input type="password" value={connectionConfig.password || ''} onChange={(e) => handleConfigChange('password', e.target.value)} className={inputClass} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </>
+        )
+
+      // Google Sheets
+      case 'google-sheets':
+        return (
+          <div className="space-y-3">
+            <div>
+              <label className={labelClass}>Google Sheets URL *</label>
+              <input type="url" value={connectionConfig.url || ''} onChange={(e) => handleConfigChange('url', e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/..." className={inputClass} />
+            </div>
+            <div>
+              <label className={labelClass}>Service Account JSON</label>
+              <textarea value={connectionConfig.credentials || ''} onChange={(e) => handleConfigChange('credentials', e.target.value)} placeholder='{"type": "service_account", ...}' className={inputClass + " h-20"} />
+            </div>
+          </div>
+        )
+
+      // SharePoint
+      case 'sharepoint-list':
+        return (
+          <div className="space-y-3">
+            <div>
+              <label className={labelClass}>SharePoint Site URL *</label>
+              <input type="url" value={connectionConfig.siteUrl || ''} onChange={(e) => handleConfigChange('siteUrl', e.target.value)} placeholder="https://company.sharepoint.com/sites/sitename" className={inputClass} />
+            </div>
+            <div>
+              <label className={labelClass}>List Name *</label>
+              <input type="text" value={connectionConfig.listName || ''} onChange={(e) => handleConfigChange('listName', e.target.value)} placeholder="List Name" className={inputClass} />
+            </div>
+          </div>
+        )
+
+      // ODBC
+      case 'odbc':
+        return (
+          <div className="space-y-3">
+            <div>
+              <label className={labelClass}>Connection String *</label>
+              <textarea value={connectionConfig.connectionString || ''} onChange={(e) => handleConfigChange('connectionString', e.target.value)} placeholder="Driver={SQL Server};Server=myServerAddress;Database=myDataBase;Uid=myUsername;Pwd=myPassword;" className={inputClass + " h-24"} />
+            </div>
+          </div>
+        )
+
+      // JDBC
+      case 'jdbc':
+        return (
+          <>
+            <div className="space-y-3">
+              <div>
+                <label className={labelClass}>JDBC URL *</label>
+                <input type="text" value={connectionConfig.jdbcUrl || ''} onChange={(e) => handleConfigChange('jdbcUrl', e.target.value)} placeholder="jdbc:sqlserver://server:port;database=db" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Driver Class *</label>
+                <input type="text" value={connectionConfig.driverClass || ''} onChange={(e) => handleConfigChange('driverClass', e.target.value)} placeholder="com.microsoft.sqlserver.jdbc.SQLServerDriver" className={inputClass} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className={labelClass}>Username</label>
+                  <input type="text" value={connectionConfig.username || ''} onChange={(e) => handleConfigChange('username', e.target.value)} className={inputClass} />
+                </div>
+                <div>
+                  <label className={labelClass}>Password</label>
+                  <input type="password" value={connectionConfig.password || ''} onChange={(e) => handleConfigChange('password', e.target.value)} className={inputClass} />
+                </div>
+              </div>
+            </div>
+          </>
+        )
+
+      // Blank Query (SQL Editor)
+      case 'blank-query':
+        return (
+          <div className="space-y-3">
+            <div>
+              <label className={labelClass}>SQL Query</label>
+              <textarea value={connectionConfig.query || ''} onChange={(e) => handleConfigChange('query', e.target.value)} placeholder="SELECT * FROM table_name WHERE condition" className={inputClass + " h-32 font-mono text-xs"} />
+              <p className="text-xs text-gray-500 mt-1">Write your custom SQL query here</p>
+            </div>
+          </div>
+        )
+
+      default:
+        return (
+          <div className="text-center py-8 text-gray-500">
+            <InformationCircleIcon className="h-12 w-12 mx-auto mb-2 text-gray-400" />
+            <p>Configuration form for {selectedSource.name} coming soon</p>
+          </div>
+        )
     }
   }
 
@@ -343,11 +930,11 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex items-center justify-center min-h-screen px-4">
-        <div className="fixed inset-0 bg-black opacity-30" onClick={onCancel}></div>
+        <div className="fixed inset-0 bg-black opacity-30" onClick={handleCancel}></div>
         
-        <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-screen overflow-hidden relative">
+        <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full my-8 flex flex-col max-h-[85vh] relative">
           {/* Header */}
-          <div className="flex items-center justify-between p-6 border-b border-gray-200">
+          <div className="flex items-center justify-between p-6 border-b border-gray-200 flex-shrink-0">
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Get Data</h2>
               <p className="text-sm text-gray-500 mt-1">
@@ -355,14 +942,14 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
               </p>
             </div>
             <button
-              onClick={onCancel}
+              onClick={handleCancel}
               className="text-gray-400 hover:text-gray-600"
             >
               <XCircleIcon className="h-6 w-6" />
             </button>
           </div>
 
-          <div className="flex h-96">
+          <div className="flex flex-1 overflow-hidden">
             {step === 'select-source' && (
               <>
                 {/* Categories Sidebar */}
@@ -437,8 +1024,8 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
             )}
 
             {step === 'configure' && selectedSource && (
-              <div className="flex-1 p-6">
-                <div className="max-w-2xl">
+              <div className="flex-1 overflow-y-auto p-6">
+                <div className="max-w-2xl mx-auto">
                   <div className="flex items-center space-x-3 mb-6">
                     <selectedSource.icon className="h-8 w-8 text-blue-600" />
                     <div>
@@ -478,102 +1065,7 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
 
                   {/* Connection Configuration */}
                   <div className="space-y-4">
-                    {selectedSource.category === 'databases' && (
-                      <>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Server
-                          </label>
-                          <input
-                            type="text"
-                            value={connectionConfig.server || ''}
-                            onChange={(e) => handleConfigChange('server', e.target.value)}
-                            placeholder="localhost or server.domain.com"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Database (optional)
-                          </label>
-                          <input
-                            type="text"
-                            value={connectionConfig.database || ''}
-                            onChange={(e) => handleConfigChange('database', e.target.value)}
-                            placeholder="Database name"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        </div>
-                      </>
-                    )}
-
-                    {selectedSource.category === 'files' && (
-                      <div className="space-y-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-3">
-                            Upload File or Enter URL
-                          </label>
-                          <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors">
-                            <input
-                              type="file"
-                              id="file-upload"
-                              className="hidden"
-                              accept={selectedSource.type === 'excel' ? '.xlsx,.xls' :
-                                      selectedSource.type === 'csv' ? '.csv,.tsv,.txt' :
-                                      selectedSource.type === 'json' ? '.json' :
-                                      selectedSource.type === 'xml' ? '.xml' :
-                                      selectedSource.type === 'parquet' ? '.parquet' : '*'}
-                              onChange={(e) => {
-                                const file = e.target.files?.[0]
-                                if (file) {
-                                  handleConfigChange('file', file)
-                                  handleConfigChange('fileName', file.name)
-                                }
-                              }}
-                            />
-                            <label htmlFor="file-upload" className="cursor-pointer">
-                              <div className="flex flex-col items-center">
-                                <DocumentIcon className="h-12 w-12 text-gray-400 mb-4" />
-                                <span className="text-sm font-medium text-gray-700">
-                                  {connectionConfig.fileName || 'Click to upload file'}
-                                </span>
-                                <span className="text-xs text-gray-500 mt-1">
-                                  Or drag and drop your file here
-                                </span>
-                              </div>
-                            </label>
-                          </div>
-                        </div>
-                        <div className="text-center text-gray-500">- OR -</div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
-                            File URL
-                          </label>
-                          <input
-                            type="url"
-                            value={connectionConfig.url || ''}
-                            onChange={(e) => handleConfigChange('url', e.target.value)}
-                            placeholder="https://example.com/data.csv"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {selectedSource.category === 'web' && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          URL
-                        </label>
-                        <input
-                          type="url"
-                          value={connectionConfig.url || ''}
-                          onChange={(e) => handleConfigChange('url', e.target.value)}
-                          placeholder="https://api.example.com/data"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                    )}
+                    {renderConnectionForm()}
 
                     {/* Connection Status */}
                     {connectionStatus !== 'idle' && (
@@ -588,15 +1080,20 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
                           )}
                           {connectionStatus === 'success' && <CheckCircleIcon className="h-5 w-5 text-green-600" />}
                           {connectionStatus === 'error' && <ExclamationTriangleIcon className="h-5 w-5 text-red-600" />}
-                          <span className={`text-sm font-medium ${
-                            connectionStatus === 'testing' ? 'text-blue-700' :
-                            connectionStatus === 'success' ? 'text-green-700' :
-                            'text-red-700'
-                          }`}>
-                            {connectionStatus === 'testing' && 'Testing connection...'}
-                            {connectionStatus === 'success' && 'Connection successful!'}
-                            {connectionStatus === 'error' && 'Connection failed. Please check your settings.'}
-                          </span>
+                          <div className="flex-1">
+                            <span className={`text-sm font-medium ${
+                              connectionStatus === 'testing' ? 'text-blue-700' :
+                              connectionStatus === 'success' ? 'text-green-700' :
+                              'text-red-700'
+                            }`}>
+                              {connectionStatus === 'testing' && 'Testing connection...'}
+                              {connectionStatus === 'success' && 'Connection successful!'}
+                              {connectionStatus === 'error' && 'Connection failed'}
+                            </span>
+                            {connectionStatus === 'error' && errorMessage && (
+                              <p className="text-xs text-red-600 mt-1">{errorMessage}</p>
+                            )}
+                          </div>
                         </div>
                       </div>
                     )}
@@ -607,9 +1104,9 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-between p-6 border-t border-gray-200 bg-gray-50">
+          <div className="flex items-center justify-between p-6 border-t border-gray-200 bg-gray-50 flex-shrink-0">
             <button
-              onClick={() => step === 'configure' ? setStep('select-source') : onCancel}
+              onClick={() => step === 'configure' ? setStep('select-source') : handleCancel()}
               className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
             >
               {step === 'configure' ? 'Back' : 'Cancel'}
@@ -620,16 +1117,30 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
                 <>
                   <button
                     onClick={testConnection}
-                    disabled={isConnecting}
+                    disabled={isConnecting || (
+                      selectedSource.category === 'file' ?
+                        (!connectionConfig.file && !connectionConfig.url) :
+                        selectedSource.category === 'database' ?
+                          (!connectionConfig.server) :
+                          selectedSource.category === 'online-services' ?
+                            (!connectionConfig.url) :
+                            false
+                    )}
                     className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
                   >
                     {isConnecting ? 'Testing...' : 'Test Connection'}
                   </button>
                   <button
                     onClick={handleConnect}
-                    disabled={selectedSource.category === 'files' ? 
-                      (!connectionConfig.file && !connectionConfig.url) :
-                      connectionStatus !== 'success'}
+                    disabled={isConnecting || (
+                      selectedSource.category === 'file' ?
+                        (!connectionConfig.file && !connectionConfig.url) :
+                        selectedSource.category === 'database' ?
+                          (!connectionConfig.server) :
+                          selectedSource.category === 'online-services' ?
+                            (!connectionConfig.url) :
+                            false
+                    )}
                     className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isConnecting ? 'Connecting...' : 'Connect'}

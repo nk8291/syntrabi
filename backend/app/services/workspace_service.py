@@ -60,10 +60,9 @@ class WorkspaceService:
             )
             
             self.session.add(workspace)
-            await self.session.flush()
-            await self.session.refresh(workspace)
+            await self.session.flush()  # This generates the workspace.id
             
-            # Create owner permission
+            # Create owner permission using the flushed workspace ID
             owner_permission = Permission(
                 user_id=owner_id,
                 object_type=PermissionObjectType.WORKSPACE,
@@ -75,6 +74,9 @@ class WorkspaceService:
             
             self.session.add(owner_permission)
             await self.session.commit()
+            
+            # Refresh workspace after commit to get all fields
+            await self.session.refresh(workspace)
             
             logger.info("Workspace created", workspace_id=str(workspace.id), name=name)
             return workspace
@@ -115,9 +117,19 @@ class WorkspaceService:
     async def delete_workspace(self, workspace_id: str) -> bool:
         """Delete workspace and all associated data."""
         try:
-            # Delete workspace (cascading will handle related data)
-            stmt = delete(Workspace).where(Workspace.id == workspace_id)
-            result = await self.session.execute(stmt)
+            # First, delete all permissions associated with this workspace
+            # This includes both permissions scoped to this workspace AND permissions for this workspace itself
+            permissions_stmt = delete(Permission).where(
+                or_(
+                    Permission.workspace_id == workspace_id,
+                    and_(Permission.object_type == PermissionObjectType.WORKSPACE, Permission.object_id == workspace_id)
+                )
+            )
+            await self.session.execute(permissions_stmt)
+            
+            # Delete workspace
+            workspace_stmt = delete(Workspace).where(Workspace.id == workspace_id)
+            result = await self.session.execute(workspace_stmt)
             await self.session.commit()
             
             deleted = result.rowcount > 0
@@ -136,11 +148,12 @@ class WorkspaceService:
         user_id: str,
         limit: int = 50,
         offset: int = 0,
-        search: Optional[str] = None
+        search: Optional[str] = None,
+        is_admin: bool = False
     ) -> Tuple[List[Workspace], int]:
         """List workspaces accessible to user with pagination."""
         try:
-            # Base query - workspaces owned by user or shared with user
+            # Base query with eager loading of relationships
             base_query = (
                 select(Workspace)
                 .options(
@@ -148,7 +161,11 @@ class WorkspaceService:
                     selectinload(Workspace.reports),
                     selectinload(Workspace.dashboards)
                 )
-                .where(
+            )
+            
+            # Admin users can see ALL workspaces, regular users see only accessible ones
+            if not is_admin:
+                base_query = base_query.where(
                     or_(
                         Workspace.owner_id == user_id,
                         Workspace.id.in_(
@@ -163,7 +180,6 @@ class WorkspaceService:
                         Workspace.is_public == True  # Public workspaces
                     )
                 )
-            )
             
             # Add search filter if provided
             if search:

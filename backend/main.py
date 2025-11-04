@@ -1,6 +1,6 @@
 """
-PowerBI Web Replica - Main FastAPI Application
-Entry point for the backend API server providing data visualization platform services.
+Syntra - Advanced Business Intelligence Platform
+Entry point for the backend API server providing comprehensive data visualization and analytics services.
 """
 
 from contextlib import asynccontextmanager
@@ -17,7 +17,8 @@ import uvicorn
 from app.core.config import get_settings
 from app.core.database import init_db
 from app.core.redis_client import init_redis
-from app.routes import auth, workspaces, datasets, reports, dashboards, jobs, embed
+from app.routes import auth, workspaces, datasets, reports, dashboards, jobs, embed, exports
+from app.routes import settings as settings_router
 
 
 # Configure structured logging
@@ -47,7 +48,7 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     """Handle application startup and shutdown."""
     # Startup
-    logger.info("Starting PowerBI Web Replica Backend")
+    logger.info("Starting Syntra Advanced BI Platform Backend")
     
     try:
         # Initialize database
@@ -58,6 +59,14 @@ async def lifespan(app: FastAPI):
         await init_redis()
         logger.info("Redis initialized successfully")
         
+        # Initialize Storage
+        try:
+            from app.services.storage_service import init_storage
+            await init_storage()
+            logger.info("Storage service initialized successfully")
+        except Exception as e:
+            logger.warning("Storage service initialization failed", error=str(e))
+        
         logger.info("Application startup completed")
         yield
         
@@ -66,14 +75,14 @@ async def lifespan(app: FastAPI):
         raise
     finally:
         # Shutdown
-        logger.info("Shutting down PowerBI Web Replica Backend")
+        logger.info("Shutting down Syntra Advanced BI Platform Backend")
 
 
 # Create FastAPI app with lifespan management
 app = FastAPI(
-    title="PowerBI Web Replica API",
-    description="A comprehensive API for web-based data visualization platform",
-    version="1.0.0",
+    title="Syntra Advanced BI Platform API",
+    description="Comprehensive API for advanced business intelligence, data visualization, and analytics",
+    version="1.2.0",
     docs_url="/docs" if settings.environment == "development" else None,
     redoc_url="/redoc" if settings.environment == "development" else None,
     lifespan=lifespan
@@ -181,7 +190,7 @@ async def health_check() -> Dict[str, Any]:
     return {
         "status": "healthy",
         "timestamp": time.time(),
-        "version": "1.0.0",
+        "version": "1.2.0",
         "environment": settings.environment,
     }
 
@@ -191,9 +200,9 @@ async def health_check() -> Dict[str, Any]:
 async def root():
     """Root endpoint with API information."""
     return {
-        "name": "PowerBI Web Replica API",
-        "version": "1.0.0",
-        "description": "Web-based data visualization platform API",
+        "name": "Syntra Advanced BI Platform API",
+        "version": "1.2.0",
+        "description": "Advanced business intelligence and data visualization platform API",
         "docs_url": "/docs",
         "health_url": "/health",
     }
@@ -207,6 +216,8 @@ app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(dashboards.router, prefix="/api/dashboards", tags=["Dashboards"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(embed.router, prefix="/api/embed", tags=["Embed"])
+app.include_router(settings_router.router, prefix="/api/settings", tags=["Settings"])
+app.include_router(exports.router, prefix="/api/exports", tags=["Exports"])
 
 # Mount static files for uploads and exports
 import os

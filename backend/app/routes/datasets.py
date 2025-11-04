@@ -16,6 +16,8 @@ from app.core.security import get_current_user
 from app.models.user import User
 from app.models.dataset import ConnectorType
 from app.services.dataset_service import DatasetService
+from app.services.data_connectors import DataSourceManager, DataConnectorFactory
+from app.services.pbids_service import PBIDSManager
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -212,7 +214,7 @@ async def create_dataset(
     try:
         # Parse connector type
         try:
-            connector_enum = ConnectorType(connector_type)
+            connector_enum = ConnectorType(connector_type.lower())
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -259,8 +261,8 @@ async def create_dataset(
             session=session,
             workspace_id=workspace_id,
             name=name,
-            connector_type=connector_enum,
-            file_content=file_content,
+            connector_type=connector_type,#connector_enum,
+            file_content=file_content, 
             connection_config=config
         )
         
@@ -334,4 +336,222 @@ async def query_dataset(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to query dataset"
+        )
+
+
+# Enhanced Data Source Management Endpoints
+
+@router.get("/connectors/types")
+async def get_supported_connector_types():
+    """Get list of supported data source connector types."""
+    try:
+        supported_types = DataConnectorFactory.get_supported_types()
+        connectors_info = []
+        
+        for connector_type in supported_types:
+            requirements = DataConnectorFactory.get_connector_requirements(connector_type)
+            connectors_info.append({
+                "type": connector_type.value,
+                "name": connector_type.value.replace('_', ' ').title(),
+                "description": requirements.get("description", ""),
+                "required_fields": requirements.get("required", []),
+                "optional_fields": requirements.get("optional", [])
+            })
+        
+        return {
+            "connectors": connectors_info,
+            "total_count": len(connectors_info)
+        }
+    except Exception as e:
+        logger.error("Failed to get connector types", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve connector types"
+        )
+
+
+@router.post("/connectors/test")
+async def test_data_source_connection(
+    connector_type: str,
+    config: Dict[str, Any],
+    current_user: User = Depends(get_current_user)
+):
+    """Test connection to a data source."""
+    try:
+        # Convert string to enum
+        try:
+            connector_enum = ConnectorType(connector_type)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported connector type: {connector_type}"
+            )
+        
+        # Test connection
+        result = await DataSourceManager.test_data_source(connector_enum, config)
+        
+        if result["success"]:
+            logger.info(
+                "Data source connection test successful",
+                connector_type=connector_type,
+                user_id=str(current_user.id)
+            )
+        else:
+            logger.warning(
+                "Data source connection test failed",
+                connector_type=connector_type,
+                message=result["message"],
+                user_id=str(current_user.id)
+            )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Connection test error", connector_type=connector_type, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Connection test failed: {str(e)}"
+        )
+
+
+@router.post("/connectors/schema")
+async def get_data_source_schema(
+    connector_type: str,
+    config: Dict[str, Any],
+    current_user: User = Depends(get_current_user)
+):
+    """Get schema information from a data source."""
+    try:
+        # Convert string to enum
+        try:
+            connector_enum = ConnectorType(connector_type)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported connector type: {connector_type}"
+            )
+        
+        # Get schema
+        result = await DataSourceManager.get_data_source_schema(connector_enum, config)
+        
+        if result["success"]:
+            logger.info(
+                "Data source schema retrieved successfully",
+                connector_type=connector_type,
+                user_id=str(current_user.id)
+            )
+        else:
+            logger.warning(
+                "Failed to retrieve data source schema",
+                connector_type=connector_type,
+                error=result.get("error"),
+                user_id=str(current_user.id)
+            )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Schema retrieval error", connector_type=connector_type, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Schema retrieval failed: {str(e)}"
+        )
+
+
+@router.post("/connectors/preview")
+async def preview_data_source(
+    connector_type: str,
+    config: Dict[str, Any],
+    table_name: Optional[str] = None,
+    limit: int = 100,
+    current_user: User = Depends(get_current_user)
+):
+    """Preview data from a data source."""
+    try:
+        # Convert string to enum
+        try:
+            connector_enum = ConnectorType(connector_type)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported connector type: {connector_type}"
+            )
+        
+        # Create connector and get sample data
+        connector = DataConnectorFactory.create_connector(connector_enum, config)
+        sample_data = await connector.get_sample_data(table_name, limit)
+        
+        logger.info(
+            "Data source preview retrieved successfully",
+            connector_type=connector_type,
+            table_name=table_name,
+            rows_count=len(sample_data),
+            user_id=str(current_user.id)
+        )
+        
+        return {
+            "success": True,
+            "data": sample_data,
+            "connector_type": connector_type,
+            "table_name": table_name,
+            "rows_count": len(sample_data),
+            "limit": limit,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Data preview error", connector_type=connector_type, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Data preview failed: {str(e)}"
+        )
+
+
+@router.get("/{dataset_id}/export/pbids")
+async def export_dataset_as_pbids(
+    dataset_id: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    """Export dataset as PBIDS file for sharing and reuse."""
+    try:
+        # Get dataset
+        dataset = await DatasetService.get_dataset_by_id(session, dataset_id)
+        if not dataset:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Dataset not found"
+            )
+        
+        # Export as PBIDS
+        filename, file_content = await PBIDSManager.export_pbids_file(dataset, dataset.name)
+        
+        logger.info(
+            "Dataset exported as PBIDS",
+            dataset_id=dataset_id,
+            filename=filename,
+            user_id=str(current_user.id)
+        )
+        
+        return {
+            "success": True,
+            "filename": filename,
+            "content": file_content.decode('utf-8'),
+            "size": len(file_content),
+            "export_time": datetime.utcnow().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("PBIDS export failed", dataset_id=dataset_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"PBIDS export failed: {str(e)}"
         )

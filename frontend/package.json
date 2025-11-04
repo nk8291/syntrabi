@@ -1,10 +1,10 @@
 {
-  "name": "powerbi-web-replica-frontend",
-  "version": "1.0.0",
-  "description": "Frontend for PowerBI Web Replica - A web-based data visualization platform",
+  "name": "syntra-frontend",
+  "version": "1.2.0",
+  "description": "Frontend for Syntra - Advanced Business Intelligence Platform",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0 --port 3000",
+    "dev": "node start-dev.cjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
@@ -15,14 +15,14 @@
     "test:coverage": "vitest --coverage",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
-    "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",
-    "prepare": "husky install"
+    "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,json,css,md}\""
   },
   "dependencies": {
     "@headlessui/react": "^1.7.17",
     "@heroicons/react": "^2.0.18",
     "@hookform/resolvers": "^3.3.2",
     "@monaco-editor/react": "^4.6.0",
+    "@rollup/rollup-linux-x64-gnu": "^4.50.0",
     "@tanstack/react-query": "^5.8.4",
     "@types/papaparse": "^5.3.16",
     "@xyflow/react": "^12.0.4",
@@ -33,6 +33,7 @@
     "echarts-for-react": "^3.0.2",
     "html2canvas": "^1.4.1",
     "immer": "^10.0.3",
+    "leaflet": "^1.9.4",
     "lodash-es": "^4.17.21",
     "papaparse": "^5.5.3",
     "react": "^18.2.0",
@@ -46,9 +47,9 @@
     "react-hot-toast": "^2.4.1",
     "react-resizable": "^3.0.5",
     "react-router-dom": "^6.20.1",
+    "rollup": "^4.50.0",
     "tailwind-merge": "^2.0.0",
     "uuid": "^9.0.1",
-    "vega-embed": "^6.22.2",
     "zod": "^3.22.4",
     "zustand": "^4.4.7"
   },
@@ -60,6 +61,7 @@
     "@testing-library/jest-dom": "^6.1.4",
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^14.5.1",
+    "@types/leaflet": "^1.9.20",
     "@types/lodash-es": "^4.17.12",
     "@types/react": "^18.2.37",
     "@types/react-dom": "^18.2.15",
@@ -99,6 +101,6 @@
     "dashboard",
     "charts"
   ],
-  "author": "PowerBI Web Replica Team",
+  "author": "Syntra Development Team",
   "license": "MIT"
 }

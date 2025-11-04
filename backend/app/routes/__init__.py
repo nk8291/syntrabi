@@ -3,7 +3,7 @@ API routes package for PowerBI Web Replica.
 Exports all route modules for FastAPI application.
 """
 
-from app.routes import auth, workspaces, datasets, reports, dashboards, jobs, embed
+from app.routes import auth, workspaces, datasets, reports, dashboards, jobs, embed, settings, exports
 
 __all__ = [
     "auth",
@@ -12,5 +12,7 @@ __all__ = [
     "reports",
     "dashboards", 
     "jobs",
-    "embed"
+    "embed",
+    "settings",
+    "exports"
 ]

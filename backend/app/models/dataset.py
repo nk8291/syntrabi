@@ -14,23 +14,63 @@ from app.core.database import Base
 
 
 class ConnectorType(enum.Enum):
-    """Supported data source connector types."""
+    """Supported data source connector types - Power BI compatible."""
+    # File-based sources
     CSV = "csv"
-    POSTGRESQL = "postgresql"
-    MYSQL = "mysql"
-    BIGQUERY = "bigquery"
-    SNOWFLAKE = "snowflake"
     EXCEL = "excel"
     JSON = "json"
+    XML = "xml"
+    TEXT_CSV = "text_csv"
+    PARQUET = "parquet"
+    PDF = "pdf"
+    
+    # Database sources
+    SQL_SERVER = "sql_server"
+    POSTGRESQL = "postgresql"
+    MYSQL = "mysql"
+    ORACLE = "oracle"
+    AZURE_SQL = "azure_sql"
+    TERADATA = "teradata"
+    MARIADB = "mariadb"
+    
+    # Cloud and Analytics
+    BIGQUERY = "bigquery"
+    GOOGLE_BIGQUERY = "google_bigquery"
+    SNOWFLAKE = "snowflake"
+    MONGODB = "mongodb"
+    DATABRICKS = "databricks"
+    AZURE_DATABRICKS = "azure_databricks"
+    AMAZON_REDSHIFT = "amazon_redshift"
+
+    # Connectivity
+    WEB = "web"
     REST_API = "rest_api"
+    ODATA = "odata"
+    SPARK = "spark"
+    ODBC = "odbc"
+    JDBC = "jdbc"
+    OLE_DB = "ole_db"
+    
+    # Collaboration
+    GOOGLE_SHEETS = "google_sheets"
+    SHAREPOINT_FOLDER = "sharepoint_folder"
+    FOLDER = "folder"
+    
+    # Special
+    BLANK_QUERY = "blank_query"
+    FHIR = "fhir"
 
 
 class DatasetStatus(enum.Enum):
     """Dataset processing status."""
     PENDING = "pending"
+    IMPORTING = "importing"
     PROCESSING = "processing"
+    ANALYZING = "analyzing"
     READY = "ready"
     ERROR = "error"
+    FAILED_IMPORT = "failed_import"
+    FAILED_ANALYSIS = "failed_analysis"
     REFRESHING = "refreshing"
 
 
@@ -50,7 +90,7 @@ class Dataset(Base):
     workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     
     # Connector configuration
-    connector_type = Column(SQLEnum(ConnectorType), nullable=False)
+    connector_type = Column(SQLEnum(ConnectorType, name='connector_type'), nullable=False)
     connector_config = Column(JSON, nullable=False)  # Connection details (encrypted)
     
     # Schema and data info
@@ -60,7 +100,7 @@ class Dataset(Base):
     file_size = Column(Integer, nullable=True)  # For file-based datasets
     
     # Processing status
-    status = Column(SQLEnum(DatasetStatus), default=DatasetStatus.PENDING, nullable=False)
+    status = Column(SQLEnum(DatasetStatus, name='dataset_status'), default=DatasetStatus.PENDING, nullable=False)
     error_message = Column(Text, nullable=True)
     
     # File storage (for uploaded files)

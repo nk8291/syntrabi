@@ -41,7 +41,7 @@ class DatasetService:
                 name=name,
                 connector_type=connector_type,
                 connector_config=connection_config or {},
-                status=DatasetStatus.PROCESSING
+                status=DatasetStatus.PROCESSING.value
             )
             
             session.add(dataset)
@@ -124,7 +124,7 @@ class DatasetService:
             dataset.row_count = row_count
             dataset.file_size = len(file_content)
             dataset.sample_rows = sample_rows[:10]  # Store first 10 rows as sample
-            dataset.status = DatasetStatus.READY
+            dataset.status = DatasetStatus.READY.value
             
             await session.commit()
             
@@ -132,7 +132,7 @@ class DatasetService:
                        dataset_id=str(dataset.id), row_count=row_count)
                        
         except Exception as e:
-            dataset.status = DatasetStatus.ERROR
+            dataset.status = DatasetStatus.ERROR.value
             dataset.error_message = str(e)
             await session.commit()
             logger.error("Failed to process CSV data", 
@@ -226,7 +226,7 @@ class DatasetService:
             
             dataset.schema_json = schema_json
             dataset.row_count = sum(table["rowCount"] for table in schema_json["tables"])
-            dataset.status = DatasetStatus.READY
+            dataset.status = DatasetStatus.READY.value
             
             await session.commit()
             
@@ -234,7 +234,7 @@ class DatasetService:
                        dataset_id=str(dataset.id), connector_type=connector_type.value)
                        
         except Exception as e:
-            dataset.status = DatasetStatus.ERROR
+            dataset.status = DatasetStatus.ERROR.value    
             dataset.error_message = str(e)
             await session.commit()
             logger.error("Failed to create sample schema", 
@@ -442,7 +442,7 @@ class DatasetService:
 
             # Update refresh timestamp
             dataset.last_refresh = datetime.utcnow()
-            dataset.status = DatasetStatus.READY
+            dataset.status = DatasetStatus.READY.value
             
             await session.commit()
             

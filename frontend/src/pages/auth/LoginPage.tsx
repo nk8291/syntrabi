@@ -56,9 +56,17 @@ const LoginPage: React.FC = () => {
       <div className="max-w-md w-full space-y-8">
         {/* Header */}
         <div className="text-center">
-          <h1 className="text-4xl font-bold text-primary-600 mb-2">
-            PowerBI Web Replica
+          <div className="flex justify-center items-center mb-4">
+            <img 
+              src="/syntra.png" 
+              alt="Syntra" 
+              className="w-16 h-16 object-contain"
+            />
+          </div>
+          <h1 className="text-4xl font-bold text-blue-900 mb-1">
+            Syntra
           </h1>
+          <p className="text-sm text-gray-500 mb-4">Where data meets decisions</p>
           <h2 className="text-2xl font-semibold text-gray-900">
             Sign in to your account
           </h2>

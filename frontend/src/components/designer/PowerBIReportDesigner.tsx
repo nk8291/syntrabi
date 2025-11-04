@@ -16,6 +16,7 @@ import ShapesPanel from './ShapesPanel'
 import DataSourceConnector from './DataSourceConnector'
 import BookmarksPanel from './BookmarksPanel'
 import { Visual, VisualType, ReportPage } from '@/types/report'
+import { reportsService } from '@/services/reportsService'
 import type { ShapeType } from './ShapesPanel'
 import type { DataSourceType, ConnectionMode } from './DataSourceConnector'
 
@@ -37,6 +38,11 @@ interface DesignerState {
   gridSize: number
   activeLeftPanel: 'fields' | 'shapes' | 'bookmarks' | null
   activeRightPanel: 'visualizations' | 'properties' | 'filters' | null
+  reportName: string
+  reportId: string | null
+  isSaved: boolean
+  showSaveDialog: boolean
+  showSaveAsDialog: boolean
 }
 
 const PowerBIReportDesigner = forwardRef<any, PowerBIReportDesignerProps>(({
@@ -60,6 +66,11 @@ const PowerBIReportDesigner = forwardRef<any, PowerBIReportDesignerProps>(({
     gridSize: 20,
     activeLeftPanel: 'fields',
     activeRightPanel: 'visualizations',
+    reportName: 'Untitled Report',
+    reportId: reportId || null,
+    isSaved: false,
+    showSaveDialog: false,
+    showSaveAsDialog: false,
   })
 
   const currentPage = designerState.pages.find(p => p.id === designerState.currentPageId) || designerState.pages[0]
@@ -76,11 +87,16 @@ const PowerBIReportDesigner = forwardRef<any, PowerBIReportDesignerProps>(({
     })
   }), [designerState])
 
-  const handleAddVisual = useCallback((type: VisualType, position: { x: number, y: number }, options?: any) => {
+  const handleAddVisual = useCallback((type: VisualType, position: { x: number, y: number } = { x: 100, y: 100 }, options?: any) => {
     const newVisual: Visual = {
       id: `visual-${Date.now()}`,
       type,
-      position: { x: position.x, y: position.y, width: 350, height: 250 },
+      position: { 
+        x: position?.x || 100, 
+        y: position?.y || 100, 
+        width: 350, 
+        height: 250 
+      },
       data_binding: { dataset_id: '', fields: [] },
       config: { 
         colors: ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6'], 
@@ -157,6 +173,178 @@ const PowerBIReportDesigner = forwardRef<any, PowerBIReportDesignerProps>(({
     }))
   }, [])
 
+  const handleSaveReport = useCallback(async (reportName?: string) => {
+    try {
+      const nameToUse = reportName || designerState.reportName
+      const savedReport = await reportsService.saveReport({
+        id: designerState.reportId || undefined,
+        name: nameToUse,
+        description: `Report created with Power BI Web Replica`,
+        pages: designerState.pages,
+        workspaceId: workspaceId
+      })
+
+      setDesignerState(prev => ({
+        ...prev,
+        reportId: savedReport.id,
+        reportName: savedReport.name,
+        isSaved: true,
+        showSaveDialog: false,
+        showSaveAsDialog: false
+      }))
+
+      alert(`Report "${savedReport.name}" saved successfully!`)
+    } catch (error) {
+      console.error('Failed to save report:', error)
+      alert('Failed to save report. Please try again.')
+    }
+  }, [designerState.pages, designerState.reportId, designerState.reportName, workspaceId])
+
+  const handleSaveAsReport = useCallback(async (newName: string) => {
+    try {
+      const savedReport = await reportsService.saveReport({
+        // Create as new report (no id)
+        name: newName,
+        description: `Copy of ${designerState.reportName}`,
+        pages: designerState.pages,
+        workspaceId: workspaceId
+      })
+
+      setDesignerState(prev => ({
+        ...prev,
+        reportId: savedReport.id,
+        reportName: savedReport.name,
+        isSaved: true,
+        showSaveAsDialog: false
+      }))
+
+      alert(`Report saved as "${savedReport.name}" successfully!`)
+    } catch (error) {
+      console.error('Failed to save report as:', error)
+      alert('Failed to save report as. Please try again.')
+    }
+  }, [designerState.pages, designerState.reportName, workspaceId])
+
+  const handlePublishReport = useCallback(async () => {
+    if (!designerState.reportId) {
+      // Save first if not saved
+      await handleSaveReport()
+      if (!designerState.reportId) return
+    }
+
+    try {
+      await reportsService.publishReport(designerState.reportId)
+      alert(`Report "${designerState.reportName}" published successfully!`)
+    } catch (error) {
+      console.error('Failed to publish report:', error)
+      alert('Failed to publish report. Please try again.')
+    }
+  }, [designerState.reportId, designerState.reportName, handleSaveReport])
+
+  const SaveDialog: React.FC = () => {
+    const [tempName, setTempName] = useState(designerState.reportName)
+    
+    if (!designerState.showSaveDialog) return null
+
+    return (
+      <>
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50" onClick={() => setDesignerState(prev => ({ ...prev, showSaveDialog: false }))} />
+        <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Save Report</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Report Name
+                  </label>
+                  <input
+                    type="text"
+                    value={tempName}
+                    onChange={(e) => setTempName(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Enter report name..."
+                    onKeyPress={(e) => e.key === 'Enter' && tempName.trim() && handleSaveReport(tempName)}
+                  />
+                </div>
+                <div className="text-xs text-gray-500">
+                  This report will be saved in your workspace and can be accessed from the Reports section.
+                </div>
+              </div>
+              <div className="flex justify-end space-x-2 mt-6">
+                <button
+                  onClick={() => setDesignerState(prev => ({ ...prev, showSaveDialog: false }))}
+                  className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => tempName.trim() && handleSaveReport(tempName)}
+                  disabled={!tempName.trim()}
+                  className="px-4 py-2 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  const SaveAsDialog: React.FC = () => {
+    const [tempName, setTempName] = useState(`${designerState.reportName} - Copy`)
+    
+    if (!designerState.showSaveAsDialog) return null
+
+    return (
+      <>
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50" onClick={() => setDesignerState(prev => ({ ...prev, showSaveAsDialog: false }))} />
+        <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Save As</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    New Report Name
+                  </label>
+                  <input
+                    type="text"
+                    value={tempName}
+                    onChange={(e) => setTempName(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Enter new report name..."
+                    onKeyPress={(e) => e.key === 'Enter' && tempName.trim() && handleSaveAsReport(tempName)}
+                  />
+                </div>
+                <div className="text-xs text-gray-500">
+                  This will create a new copy of the current report with the specified name.
+                </div>
+              </div>
+              <div className="flex justify-end space-x-2 mt-6">
+                <button
+                  onClick={() => setDesignerState(prev => ({ ...prev, showSaveAsDialog: false }))}
+                  className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => tempName.trim() && handleSaveAsReport(tempName)}
+                  disabled={!tempName.trim()}
+                  className="px-4 py-2 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Save As
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </>
+    )
+  }
+
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="powerbi-report-designer flex flex-col h-full bg-gray-50">
@@ -193,22 +381,14 @@ const PowerBIReportDesigner = forwardRef<any, PowerBIReportDesignerProps>(({
             input.click()
           }}
           onSaveReport={() => {
-            const reportData = {
-              pages: designerState.pages,
-              currentPageId: designerState.currentPageId,
-              selectedVisual: designerState.selectedVisual
+            if (designerState.reportId) {
+              handleSaveReport()
+            } else {
+              setDesignerState(prev => ({ ...prev, showSaveDialog: true }))
             }
-            const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: 'application/json' })
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = 'report.json'
-            a.click()
-            URL.revokeObjectURL(url)
           }}
-          onPublishReport={() => {
-            alert('Report published successfully! (Demo mode)')
-          }}
+          onSaveAsReport={() => setDesignerState(prev => ({ ...prev, showSaveAsDialog: true }))}
+          onPublishReport={handlePublishReport}
           onInsertVisual={(type: string) => {
             handleAddVisual(type as VisualType, { x: 100, y: 100 })
           }}
@@ -261,7 +441,15 @@ const PowerBIReportDesigner = forwardRef<any, PowerBIReportDesignerProps>(({
                 <div className="h-full overflow-hidden panel-content">
                   {designerState.activeLeftPanel === 'fields' && <PowerBIFieldsPanel workspaceId={workspaceId} />}
                   {designerState.activeLeftPanel === 'shapes' && <ShapesPanel />}
-                  {designerState.activeLeftPanel === 'bookmarks' && <BookmarksPanel />}
+                  {designerState.activeLeftPanel === 'bookmarks' && (
+                    <BookmarksPanel 
+                      currentPage={currentPage}
+                      selectedVisual={designerState.selectedVisual}
+                      onRestoreBookmark={(bookmark) => {
+                        console.log('Restoring bookmark:', bookmark.name)
+                      }}
+                    />
+                  )}
                 </div>
               </div>
             )}
@@ -400,9 +588,17 @@ const PowerBIReportDesigner = forwardRef<any, PowerBIReportDesignerProps>(({
 
         <DataSourceConnector
           isOpen={designerState.showDataSourceConnector}
-          onConnect={() => setDesignerState(prev => ({ ...prev, showDataSourceConnector: false }))}
+          workspaceId={workspaceId}
+          onConnect={(source, config, mode, datasetId) => {
+            console.log('Dataset connected:', { source, config, mode, datasetId })
+            // TODO: Add dataset to fields panel for visualization
+            setDesignerState(prev => ({ ...prev, showDataSourceConnector: false }))}
+          }
           onCancel={() => setDesignerState(prev => ({ ...prev, showDataSourceConnector: false }))}
         />
+
+        <SaveDialog />
+        <SaveAsDialog />
       </div>
     </DndProvider>
   )

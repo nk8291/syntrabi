@@ -51,8 +51,7 @@ const WorkspaceCreateModal: React.FC<WorkspaceCreateModalProps> = ({
     try {
       let workspace
       if (isEditMode) {
-        // Mock update workspace (in real app would use workspaceService.updateWorkspace)
-        workspace = { ...initialData, ...formData }
+        workspace = await workspaceService.updateWorkspace(initialData.id, formData)
         toast.success('Workspace updated successfully!')
       } else {
         workspace = await workspaceService.createWorkspace(formData)

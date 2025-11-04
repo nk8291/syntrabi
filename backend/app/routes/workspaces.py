@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from app.core.database import get_async_session
-from app.core.security import get_current_user
+from app.routes.auth import get_current_user
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.workspace_service import WorkspaceService
@@ -72,12 +72,13 @@ async def list_workspaces(
     try:
         workspace_service = WorkspaceService(session)
         
-        # Get workspaces owned by or shared with user
+        # Get workspaces - admins see all, regular users see only accessible ones
         workspaces, total = await workspace_service.list_user_workspaces(
             user_id=str(current_user.id),
             limit=limit,
             offset=offset,
-            search=search
+            search=search,
+            is_admin=current_user.is_admin
         )
         
         workspace_list = [WorkspaceResponse(**ws.to_dict()) for ws in workspaces]

@@ -41,11 +41,11 @@ class Permission(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     
     # Object (what the permission is for)
-    object_type = Column(SQLEnum(PermissionObjectType, name='permission_object_type'), nullable=False, index=True)
+    object_type = Column(SQLEnum(PermissionObjectType, name='permission_object_type', values_callable=lambda obj: [e.value for e in obj]), nullable=False, index=True)
     object_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     
     # Permission level
-    role = Column(SQLEnum(PermissionRole, name='permission_role'), nullable=False)
+    role = Column(SQLEnum(PermissionRole, name='permission_role', values_callable=lambda obj: [e.value for e in obj]), nullable=False)
     
     # Workspace context (permissions are scoped to workspaces)
     workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=True, index=True)
@@ -63,7 +63,7 @@ class Permission(Base):
     
     # Relationships
     user = relationship("User", back_populates="workspace_permissions", foreign_keys=[user_id])
-    grantor = relationship("User", foreign_keys=[granted_by])
+    grantor = relationship("User", foreign_keys=[granted_by], overlaps="granted_permissions")
     workspace = relationship("Workspace", back_populates="permissions")
     
     # Unique constraint to prevent duplicate permissions

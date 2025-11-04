@@ -16,6 +16,8 @@ interface EChartsRendererProps {
   width?: number
   height?: number
   className?: string
+  showTooltip?: boolean
+  showLegend?: boolean
 }
 
 const EChartsRenderer: React.FC<EChartsRendererProps> = ({
@@ -23,7 +25,9 @@ const EChartsRenderer: React.FC<EChartsRendererProps> = ({
   data = [],
   width,
   height,
-  className = ''
+  className = '',
+  showTooltip = true,
+  showLegend = true
 }) => {
   const chartRef = useRef<ReactECharts>(null)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
@@ -41,7 +45,7 @@ const EChartsRenderer: React.FC<EChartsRendererProps> = ({
         fontSize: 12,
         color: '#374151'
       },
-      tooltip: {
+      tooltip: showTooltip ? {
         trigger: 'item',
         backgroundColor: 'rgba(255, 255, 255, 0.95)',
         borderColor: '#e5e7eb',
@@ -53,7 +57,7 @@ const EChartsRenderer: React.FC<EChartsRendererProps> = ({
           color: '#374151',
           fontSize: 12
         }
-      },
+      } : undefined,
       grid: {
         left: '10%',
         right: '10%',

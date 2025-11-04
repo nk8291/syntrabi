@@ -58,6 +58,7 @@ interface PowerBIMenuBarProps {
   onNewReport?: () => void
   onOpenReport?: () => void
   onSaveReport?: () => void
+  onSaveAsReport?: () => void
   onPublishReport?: () => void
   onInsertVisual?: (type: string) => void
   onInsertShape?: (type: string) => void
@@ -75,6 +76,7 @@ const PowerBIMenuBar: React.FC<PowerBIMenuBarProps> = ({
   onNewReport,
   onOpenReport,
   onSaveReport,
+  onSaveAsReport,
   onPublishReport,
   onInsertVisual,
   onInsertShape,
@@ -118,13 +120,9 @@ const PowerBIMenuBar: React.FC<PowerBIMenuBarProps> = ({
     {
       id: 'save-as',
       label: 'Save As',
-      icon: ArrowDownTrayIcon,
+      icon: DocumentDuplicateIcon,
       description: 'Save with a different name',
-      isDropdown: true,
-      children: [
-        { id: 'save-as-pbix', label: 'Save as PBIX', icon: ArrowDownTrayIcon, description: 'Save as Power BI file' },
-        { id: 'save-as-template', label: 'Save as Template', icon: ArrowDownTrayIcon, description: 'Save as template' }
-      ]
+      onClick: onSaveAsReport
     },
     {
       id: 'publish',
@@ -185,10 +183,16 @@ const PowerBIMenuBar: React.FC<PowerBIMenuBarProps> = ({
       description: 'Insert shapes',
       isDropdown: true,
       children: [
-        { id: 'rectangle', label: 'Rectangle', icon: RectangleStackIcon, description: 'Rectangle shape' },
-        { id: 'oval', label: 'Oval', icon: RectangleStackIcon, description: 'Oval shape' },
-        { id: 'line', label: 'Line', icon: RectangleStackIcon, description: 'Line shape' },
-        { id: 'arrow', label: 'Arrow', icon: RectangleStackIcon, description: 'Arrow shape' }
+        { id: 'rectangle', label: 'Rectangle', icon: RectangleStackIcon, description: 'Rectangle shape', onClick: () => onInsertShape?.('rectangle') },
+        { id: 'rounded-rectangle', label: 'Rounded Rectangle', icon: RectangleStackIcon, description: 'Rounded rectangle shape', onClick: () => onInsertShape?.('rounded-rectangle') },
+        { id: 'oval', label: 'Oval', icon: RectangleStackIcon, description: 'Oval shape', onClick: () => onInsertShape?.('oval') },
+        { id: 'line', label: 'Line', icon: RectangleStackIcon, description: 'Line shape', onClick: () => onInsertShape?.('line') },
+        { id: 'arrow', label: 'Arrow', icon: RectangleStackIcon, description: 'Arrow shape', onClick: () => onInsertShape?.('arrow') },
+        { id: 'triangle', label: 'Triangle', icon: RectangleStackIcon, description: 'Triangle shape', onClick: () => onInsertShape?.('triangle') },
+        { id: 'diamond', label: 'Diamond', icon: RectangleStackIcon, description: 'Diamond shape', onClick: () => onInsertShape?.('diamond') },
+        { id: 'pentagon', label: 'Pentagon', icon: RectangleStackIcon, description: 'Pentagon shape', onClick: () => onInsertShape?.('pentagon') },
+        { id: 'hexagon', label: 'Hexagon', icon: RectangleStackIcon, description: 'Hexagon shape', onClick: () => onInsertShape?.('hexagon') },
+        { id: 'star', label: 'Star', icon: RectangleStackIcon, description: 'Star shape', onClick: () => onInsertShape?.('star') }
       ]
     },
     {
@@ -213,35 +217,59 @@ const PowerBIMenuBar: React.FC<PowerBIMenuBarProps> = ({
       label: 'New Measure',
       icon: CalculatorIcon,
       description: 'Create a new measure',
-      onClick: () => console.log('Creating new measure...')
+      onClick: () => {
+        const measureName = prompt('Enter measure name:')
+        if (measureName) {
+          const daxFormula = prompt('Enter DAX formula:', `${measureName} = `)
+          if (daxFormula) {
+            alert(`Measure "${measureName}" with formula "${daxFormula}" would be created in a connected dataset.`)
+          }
+        }
+      }
     },
     {
       id: 'new-column',
       label: 'New Column',
       icon: TableCellsIcon,
       description: 'Create a new calculated column',
-      onClick: () => console.log('Creating new column...')
+      onClick: () => {
+        const columnName = prompt('Enter column name:')
+        if (columnName) {
+          const daxFormula = prompt('Enter DAX formula:', `${columnName} = `)
+          if (daxFormula) {
+            alert(`Calculated column "${columnName}" with formula "${daxFormula}" would be created in a connected dataset.`)
+          }
+        }
+      }
     },
     {
       id: 'new-table',
       label: 'New Table',
       icon: TableCellsIcon,
       description: 'Create a new calculated table',
-      onClick: () => console.log('Creating new table...')
+      onClick: () => {
+        const tableName = prompt('Enter table name:')
+        if (tableName) {
+          const daxFormula = prompt('Enter DAX formula:', `${tableName} = `)
+          if (daxFormula) {
+            alert(`Calculated table "${tableName}" with formula "${daxFormula}" would be created in a connected dataset.`)
+          }
+        }
+      }
     },
     {
       id: 'manage-relationships',
       label: 'Manage Relationships',
       icon: LinkIcon,
       description: 'Manage table relationships',
-      onClick: () => console.log('Managing relationships...')
+      onClick: () => alert('Relationships management would open a dialog showing table relationships and allow creation/editing of relationships between tables.')
     },
     {
       id: 'mark-as-date-table',
       label: 'Mark as Date Table',
       icon: CogIcon,
       description: 'Mark table as date table',
-      onClick: () => console.log('Marking as date table...')
+      onClick: () => alert('This would open a dialog to select a table and mark it as a date table for time intelligence functions.')
     }
   ]
 

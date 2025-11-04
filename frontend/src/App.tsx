@@ -1,6 +1,6 @@
 /**
- * PowerBI Web Replica - Main App Component
- * Root component that handles routing and global app state
+ * Syntra - Where data meets decisions
+ * Main App Component - Root component that handles routing and global app state
  */
 
 import React from 'react'

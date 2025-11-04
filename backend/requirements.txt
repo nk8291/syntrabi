@@ -11,6 +11,15 @@ alembic==1.12.1
 psycopg2-binary==2.9.9
 asyncpg==0.29.0
 
+# Database Connectors (for various data sources)
+aiomysql==0.2.0  # MySQL and MariaDB async connector
+# pyodbc>=5.0.0  # ODBC connector (requires system ODBC drivers)
+# teradatasql>=17.20.0  # Teradata connector
+# databricks-sql-connector>=2.9.0  # Databricks SQL Warehouse connector
+# pyhive>=0.7.0  # Apache Spark/Hive connector
+# jaydebeapi>=1.2.3  # JDBC connector (requires Java and JDBC drivers)
+# cx_Oracle>=8.3.0  # Oracle connector (requires Oracle Instant Client)
+
 # Redis & Caching
 redis[hiredis]==5.0.1
 
@@ -18,7 +27,7 @@ redis[hiredis]==5.0.1
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 python-multipart==0.0.6
-bcrypt==4.1.2
+bcrypt==4.0.1
 
 # Data Processing
 pandas>=2.1.0,<3.0.0
@@ -27,11 +36,12 @@ pyarrow>=14.0.0,<15.0.0
 
 # HTTP & Async
 httpx==0.25.2
+aiohttp==3.9.1
 aiofiles==23.2.1
 requests==2.31.0
 
 # Validation & Serialization
-pydantic==2.5.0
+pydantic[email]==2.5.0
 pydantic-settings==2.1.0
 email-validator==2.1.0
 
@@ -48,6 +58,8 @@ altair==5.2.0
 matplotlib==3.8.2
 reportlab==4.0.7
 Pillow==10.1.0
+playwright==1.40.0
+html2image==2.0.4.3
 
 # Monitoring & Logging
 structlog==23.2.0
