@@ -38,6 +38,7 @@ function startVite() {
   console.log('✅ Starting Vite dev server on http://localhost:3000');
   const vite = spawn(vitePath, ['--host', '0.0.0.0', '--port', '3000'], {
     stdio: 'inherit',
+    shell: true,
     env: { ...process.env, PATH: cleanPath }
   });
   

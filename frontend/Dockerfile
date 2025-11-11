@@ -12,8 +12,7 @@ COPY package*.json ./
 # Development stage
 FROM base AS development
 # Clean install with proper platform handling for Rollup
-RUN rm -rf node_modules package-lock.json
-RUN npm ci --only=production
+RUN npm ci
 COPY . .
 EXPOSE 3000
 CMD ["npm", "run", "dev"]
