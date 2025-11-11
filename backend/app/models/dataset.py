@@ -90,7 +90,7 @@ class Dataset(Base):
     workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     
     # Connector configuration
-    connector_type = Column(SQLEnum(ConnectorType, name='connector_type'), nullable=False)
+    connector_type = Column(SQLEnum(ConnectorType, name='connector_type', create_constraint=False), nullable=False)
     connector_config = Column(JSON, nullable=False)  # Connection details (encrypted)
     
     # Schema and data info
@@ -100,7 +100,7 @@ class Dataset(Base):
     file_size = Column(Integer, nullable=True)  # For file-based datasets
     
     # Processing status
-    status = Column(SQLEnum(DatasetStatus, name='dataset_status'), default=DatasetStatus.PENDING, nullable=False)
+    status = Column(SQLEnum(DatasetStatus, name='dataset_status', create_constraint=False), default=DatasetStatus.PENDING, nullable=False)
     error_message = Column(Text, nullable=True)
     
     # File storage (for uploaded files)

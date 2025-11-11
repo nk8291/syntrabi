@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 import structlog
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy import text
 import aiofiles
 # import aiohttp  # TODO: Re-enable when aiohttp dependency is fixed
 from urllib.parse import quote_plus
@@ -70,8 +71,8 @@ class SQLServerConnector(DataSourceConnector):
         try:
             engine = create_async_engine(self.connection_string)
             async with engine.begin() as conn:
-                result = await conn.execute("SELECT 1")
-                await result.fetchone()
+                result = await conn.execute(text("SELECT 1"))
+                result.fetchone()
             await engine.dispose()
             return True, "Connection successful"
         except Exception as e:
@@ -84,12 +85,12 @@ class SQLServerConnector(DataSourceConnector):
                 # Get tables
                 tables_query = """
                 SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE
-                FROM INFORMATION_SCHEMA.TABLES 
+                FROM INFORMATION_SCHEMA.TABLES
                 WHERE TABLE_TYPE = 'BASE TABLE'
                 ORDER BY TABLE_SCHEMA, TABLE_NAME
                 """
-                tables_result = await conn.execute(tables_query)
-                tables = await tables_result.fetchall()
+                tables_result = await conn.execute(text(tables_query))
+                tables = tables_result.fetchall()
                 
                 schema = {"tables": []}
                 for table in tables:
@@ -104,11 +105,11 @@ class SQLServerConnector(DataSourceConnector):
                     columns_query = """
                     SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT
                     FROM INFORMATION_SCHEMA.COLUMNS
-                    WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+                    WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table_name
                     ORDER BY ORDINAL_POSITION
                     """
-                    columns_result = await conn.execute(columns_query, (table[0], table[1]))
-                    columns = await columns_result.fetchall()
+                    columns_result = await conn.execute(text(columns_query), {"schema": table[0], "table_name": table[1]})
+                    columns = columns_result.fetchall()
                     
                     for column in columns:
                         table_info["columns"].append({
@@ -125,6 +126,41 @@ class SQLServerConnector(DataSourceConnector):
         except Exception as e:
             logger.error("Failed to get SQL Server schema", error=str(e))
             return {"error": str(e)}
+
+    async def execute_query(self, query: str, limit: int = 1000) -> Dict[str, Any]:
+        """Execute a SQL query and return results."""
+        try:
+            engine = create_async_engine(self.connection_string)
+            async with engine.begin() as conn:
+                limited_query = f"{query} OFFSET 0 ROWS FETCH NEXT {limit} ROWS ONLY" if "SELECT" in query.upper() else query
+                result = await conn.execute(text(limited_query))
+                rows = result.fetchall()
+                columns = list(result.keys()) if result.keys() else []
+
+                data = [dict(zip(columns, row)) for row in rows]
+
+            await engine.dispose()
+            return {
+                "data": data,
+                "columns": columns,
+                "row_count": len(data)
+            }
+        except Exception as e:
+            logger.error("Failed to execute SQL Server query", error=str(e))
+            return {"error": str(e), "data": [], "columns": []}
+
+    async def get_sample_data(self, table_name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get sample data from a table."""
+        if not table_name:
+            return []
+
+        try:
+            query = f"SELECT TOP {limit} * FROM {table_name}"
+            result = await self.execute_query(query, limit)
+            return result.get("data", [])
+        except Exception as e:
+            logger.error("Failed to get SQL Server sample data", error=str(e))
+            return []
 
 
 class PostgreSQLConnector(DataSourceConnector):
@@ -144,8 +180,8 @@ class PostgreSQLConnector(DataSourceConnector):
         try:
             engine = create_async_engine(self.connection_string)
             async with engine.begin() as conn:
-                result = await conn.execute("SELECT 1")
-                await result.fetchone()
+                result = await conn.execute(text("SELECT 1"))
+                result.fetchone()
             await engine.dispose()
             return True, "Connection successful"
         except Exception as e:
@@ -158,12 +194,12 @@ class PostgreSQLConnector(DataSourceConnector):
                 # Get tables
                 tables_query = """
                 SELECT schemaname, tablename, 'BASE TABLE' as table_type
-                FROM pg_tables 
+                FROM pg_tables
                 WHERE schemaname NOT IN ('information_schema', 'pg_catalog')
                 ORDER BY schemaname, tablename
                 """
-                tables_result = await conn.execute(tables_query)
-                tables = await tables_result.fetchall()
+                tables_result = await conn.execute(text(tables_query))
+                tables = tables_result.fetchall()
                 
                 schema = {"tables": []}
                 for table in tables:
@@ -178,11 +214,11 @@ class PostgreSQLConnector(DataSourceConnector):
                     columns_query = """
                     SELECT column_name, data_type, is_nullable, column_default
                     FROM information_schema.columns
-                    WHERE table_schema = $1 AND table_name = $2
+                    WHERE table_schema = :schema AND table_name = :table_name
                     ORDER BY ordinal_position
                     """
-                    columns_result = await conn.execute(columns_query, table[0], table[1])
-                    columns = await columns_result.fetchall()
+                    columns_result = await conn.execute(text(columns_query), {"schema": table[0], "table_name": table[1]})
+                    columns = columns_result.fetchall()
                     
                     for column in columns:
                         table_info["columns"].append({
@@ -199,6 +235,41 @@ class PostgreSQLConnector(DataSourceConnector):
         except Exception as e:
             logger.error("Failed to get PostgreSQL schema", error=str(e))
             return {"error": str(e)}
+
+    async def execute_query(self, query: str, limit: int = 1000) -> Dict[str, Any]:
+        """Execute a SQL query and return results."""
+        try:
+            engine = create_async_engine(self.connection_string)
+            async with engine.begin() as conn:
+                limited_query = f"{query} LIMIT {limit}" if "SELECT" in query.upper() and "LIMIT" not in query.upper() else query
+                result = await conn.execute(text(limited_query))
+                rows = result.fetchall()
+                columns = list(result.keys()) if result.keys() else []
+
+                data = [dict(zip(columns, row)) for row in rows]
+
+            await engine.dispose()
+            return {
+                "data": data,
+                "columns": columns,
+                "row_count": len(data)
+            }
+        except Exception as e:
+            logger.error("Failed to execute PostgreSQL query", error=str(e))
+            return {"error": str(e), "data": [], "columns": []}
+
+    async def get_sample_data(self, table_name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get sample data from a table."""
+        if not table_name:
+            return []
+
+        try:
+            query = f"SELECT * FROM {table_name} LIMIT {limit}"
+            result = await self.execute_query(query, limit)
+            return result.get("data", [])
+        except Exception as e:
+            logger.error("Failed to get PostgreSQL sample data", error=str(e))
+            return []
 
 
 class MySQLConnector(DataSourceConnector):
@@ -218,8 +289,8 @@ class MySQLConnector(DataSourceConnector):
         try:
             engine = create_async_engine(self.connection_string)
             async with engine.begin() as conn:
-                result = await conn.execute("SELECT 1")
-                await result.fetchone()
+                result = await conn.execute(text("SELECT 1"))
+                result.fetchone()
             await engine.dispose()
             return True, "Connection successful"
         except Exception as e:
@@ -231,8 +302,8 @@ class MySQLConnector(DataSourceConnector):
             async with engine.begin() as conn:
                 # Get tables
                 tables_query = "SHOW TABLES"
-                tables_result = await conn.execute(tables_query)
-                tables = await tables_result.fetchall()
+                tables_result = await conn.execute(text(tables_query))
+                tables = tables_result.fetchall()
 
                 schema = {"tables": []}
                 for table in tables:
@@ -247,7 +318,7 @@ class MySQLConnector(DataSourceConnector):
                     # Get columns for each table
                     columns_query = f"DESCRIBE {table_name}"
                     columns_result = await conn.execute(columns_query)
-                    columns = await columns_result.fetchall()
+                    columns = columns_result.fetchall()
 
                     for column in columns:
                         table_info["columns"].append({
@@ -264,6 +335,41 @@ class MySQLConnector(DataSourceConnector):
         except Exception as e:
             logger.error("Failed to get MySQL schema", error=str(e))
             return {"error": str(e)}
+
+    async def execute_query(self, query: str, limit: int = 1000) -> Dict[str, Any]:
+        """Execute a SQL query and return results."""
+        try:
+            engine = create_async_engine(self.connection_string)
+            async with engine.begin() as conn:
+                limited_query = f"{query} LIMIT {limit}" if "SELECT" in query.upper() and "LIMIT" not in query.upper() else query
+                result = await conn.execute(text(limited_query))
+                rows = result.fetchall()
+                columns = list(result.keys()) if result.keys() else []
+
+                data = [dict(zip(columns, row)) for row in rows]
+
+            await engine.dispose()
+            return {
+                "data": data,
+                "columns": columns,
+                "row_count": len(data)
+            }
+        except Exception as e:
+            logger.error("Failed to execute MySQL query", error=str(e))
+            return {"error": str(e), "data": [], "columns": []}
+
+    async def get_sample_data(self, table_name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get sample data from a table."""
+        if not table_name:
+            return []
+
+        try:
+            query = f"SELECT * FROM {table_name} LIMIT {limit}"
+            result = await self.execute_query(query, limit)
+            return result.get("data", [])
+        except Exception as e:
+            logger.error("Failed to get MySQL sample data", error=str(e))
+            return []
 
 
 class MariaDBConnector(MySQLConnector):
@@ -590,6 +696,33 @@ class CSVFileConnector(DataSourceConnector):
         else:
             return 'string'
 
+    async def execute_query(self, query: str, limit: int = 1000) -> Dict[str, Any]:
+        """Execute a query on CSV data (limited functionality)."""
+        try:
+            # For CSV, we can only return all data with limit
+            df = pd.read_csv(self.file_path, delimiter=self.delimiter, encoding=self.encoding, nrows=limit)
+
+            data = df.to_dict('records')
+            columns = list(df.columns)
+
+            return {
+                "data": data,
+                "columns": columns,
+                "row_count": len(data)
+            }
+        except Exception as e:
+            logger.error("Failed to query CSV data", error=str(e))
+            return {"error": str(e), "data": [], "columns": []}
+
+    async def get_sample_data(self, table_name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get sample data from CSV file."""
+        try:
+            df = pd.read_csv(self.file_path, delimiter=self.delimiter, encoding=self.encoding, nrows=limit)
+            return df.to_dict('records')
+        except Exception as e:
+            logger.error("Failed to get CSV sample data", error=str(e))
+            return []
+
 
 class ExcelConnector(DataSourceConnector):
     """Excel file connector."""
@@ -648,6 +781,32 @@ class ExcelConnector(DataSourceConnector):
             return 'datetime'
         else:
             return 'string'
+
+    async def execute_query(self, query: str, limit: int = 1000) -> Dict[str, Any]:
+        """Execute a query on Excel data (limited functionality)."""
+        try:
+            df = pd.read_excel(self.file_path, sheet_name=self.sheet_name, nrows=limit)
+
+            data = df.to_dict('records')
+            columns = list(df.columns)
+
+            return {
+                "data": data,
+                "columns": columns,
+                "row_count": len(data)
+            }
+        except Exception as e:
+            logger.error("Failed to query Excel data", error=str(e))
+            return {"error": str(e), "data": [], "columns": []}
+
+    async def get_sample_data(self, table_name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get sample data from Excel sheet."""
+        try:
+            df = pd.read_excel(self.file_path, sheet_name=self.sheet_name, nrows=limit)
+            return df.to_dict('records')
+        except Exception as e:
+            logger.error("Failed to get Excel sample data", error=str(e))
+            return []
 
 
 class DataConnectorFactory:

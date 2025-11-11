@@ -261,8 +261,8 @@ async def create_dataset(
             session=session,
             workspace_id=workspace_id,
             name=name,
-            connector_type=connector_type,#connector_enum,
-            file_content=file_content, 
+            connector_type=connector_enum,
+            file_content=file_content,
             connection_config=config
         )
         
