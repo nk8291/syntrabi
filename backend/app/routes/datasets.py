@@ -7,17 +7,21 @@ from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import update
 import structlog
 import time
 from datetime import datetime
+from uuid import UUID
 
 from app.core.database import get_async_session
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.dataset import ConnectorType
+from app.models.workspace import Workspace
 from app.services.dataset_service import DatasetService
 from app.services.data_connectors import DataSourceManager, DataConnectorFactory
 from app.services.pbids_service import PBIDSManager
+from app.services.workspace_service import WorkspaceService
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -212,6 +216,35 @@ async def create_dataset(
 ):
     """Create dataset from file upload or connector."""
     try:
+        # Ensure workspace exists - create default workspace if needed
+        # We need to do this in a separate transaction to avoid greenlet issues
+        workspace_service = WorkspaceService(session)
+        workspace = await workspace_service.get_workspace_by_id(workspace_id)
+
+        if not workspace:
+            logger.info(f"Workspace {workspace_id} not found, creating default workspace")
+            # Convert workspace_id to UUID if it's a string
+            try:
+                workspace_uuid = UUID(workspace_id) if isinstance(workspace_id, str) else workspace_id
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid workspace ID format: {workspace_id}"
+                )
+
+            # Create workspace and flush to database immediately
+            # This ensures it exists for foreign key validation when creating dataset
+            workspace = Workspace(
+                id=workspace_uuid,
+                name="My Workspace",
+                description="Default workspace",
+                owner_id=current_user.id,
+                is_public=False
+            )
+            session.add(workspace)
+            await session.flush()  # Flush workspace to DB without committing transaction
+            logger.info(f"Created default workspace {workspace_id}")
+
         # Parse connector type
         try:
             connector_enum = ConnectorType(connector_type.lower())
@@ -294,12 +327,25 @@ async def get_dataset(
 ):
     """Get dataset details."""
     try:
+        from app.models.dataset import ConnectorType
+
         dataset = await DatasetService.get_dataset_by_id(session, dataset_id)
         if not dataset:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Dataset not found"
             )
+
+        # For database connectors, fetch schema if not already cached
+        if dataset.connector_type in [
+            ConnectorType.POSTGRESQL,
+            ConnectorType.MYSQL,
+            ConnectorType.BIGQUERY,
+            ConnectorType.SNOWFLAKE
+        ]:
+            # Fetch and cache schema on first access
+            await DatasetService.fetch_and_cache_schema(session, dataset)
+
         return dataset.to_dict()
     except HTTPException:
         raise

@@ -11,9 +11,9 @@ import axios, {
 } from 'axios'
 import toast from 'react-hot-toast'
 
-// API configuration  
+// API configuration
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-const REQUEST_TIMEOUT = 30000 // 30 seconds
+const REQUEST_TIMEOUT = 60000 // 60 seconds (increased for database operations)
 
 // Create axios instance
 const apiClient: AxiosInstance = axios.create({

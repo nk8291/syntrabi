@@ -97,7 +97,7 @@ class PBIDS(Base):
     workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id"), nullable=False)
     
     # PBIDS connection details
-    connection_type = Column(SQLEnum(ConnectionType), nullable=False)
+    connection_type = Column(SQLEnum(ConnectionType, values_callable=lambda x: [e.value for e in x]), nullable=False)
     version = Column(String(10), default="0.1", nullable=False)  # PBIDS format version
     
     # Connection configuration (matches PBIDS JSON structure)
@@ -331,8 +331,8 @@ class PBIDSTemplate(Base):
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     category = Column(String(100), nullable=False)  # Database, Cloud, File, Web, etc.
-    connection_type = Column(SQLEnum(ConnectionType), nullable=False)
-    
+    connection_type = Column(SQLEnum(ConnectionType, values_callable=lambda x: [e.value for e in x]), nullable=False)
+
     # Template configuration - parameters that users can fill in
     template_config = Column(JSON, nullable=False)
     

@@ -370,7 +370,20 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
   const handleSourceSelect = (source: DataSource) => {
     setSelectedSource(source)
     setConnectionMode(source.supportedModes[0])
-    setConnectionConfig({})
+
+    // Pre-fill PostgreSQL credentials for testing
+    if (source.type === 'postgresql') {
+      setConnectionConfig({
+        host: '162.214.101.42',
+        port: 5432,
+        database: 'fmoh_prod',
+        username: 'fmoh_prod_usr',
+        password: 'FL98GFARYBE'
+      })
+    } else {
+      setConnectionConfig({})
+    }
+
     setStep('configure')
   }
 
@@ -398,6 +411,80 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
     }
   }
 
+  // Helper function to check if required fields are filled
+  const isConnectionConfigValid = useCallback(() => {
+    if (!selectedSource) return false
+
+    switch (selectedSource.category) {
+      case 'file':
+        return !!(connectionConfig.file || connectionConfig.url)
+
+      case 'database':
+        // Different databases use different field names
+        switch (selectedSource.type) {
+          case 'sql-server':
+          case 'azure-sql':
+          case 'teradata':
+          case 'amazon-redshift':
+            return !!(connectionConfig.server && connectionConfig.username && connectionConfig.password)
+
+          case 'postgresql':
+          case 'mysql':
+          case 'mariadb':
+          case 'oracle':
+          case 'spark':
+            return !!(connectionConfig.host && connectionConfig.database && connectionConfig.username && connectionConfig.password)
+
+          case 'databricks':
+          case 'azure-databricks':
+            return !!(connectionConfig.server_hostname && connectionConfig.http_path && connectionConfig.access_token)
+
+          case 'snowflake':
+            return !!(connectionConfig.account && connectionConfig.username && connectionConfig.password)
+
+          case 'google-bigquery':
+            return !!(connectionConfig.project_id)
+
+          default:
+            return !!(connectionConfig.server || connectionConfig.host)
+        }
+
+      case 'azure':
+        // Cloud services validation
+        switch (selectedSource.type) {
+          case 'google-bigquery':
+            return !!(connectionConfig.project_id)
+          case 'snowflake':
+            return !!(connectionConfig.account && connectionConfig.username && connectionConfig.password)
+          case 'databricks':
+          case 'azure-databricks':
+            return !!(connectionConfig.server_hostname && connectionConfig.http_path && connectionConfig.access_token)
+          case 'amazon-redshift':
+            return !!(connectionConfig.server && connectionConfig.database && connectionConfig.username && connectionConfig.password)
+          case 'spark':
+            return !!(connectionConfig.host)
+          default:
+            return false
+        }
+
+      case 'online-services':
+        return !!(connectionConfig.url || connectionConfig.siteUrl)
+
+      case 'other':
+        switch (selectedSource.type) {
+          case 'odbc':
+            return !!(connectionConfig.connectionString)
+          case 'jdbc':
+            return !!(connectionConfig.jdbcUrl && connectionConfig.driverClass)
+          default:
+            return true
+        }
+
+      default:
+        return false
+    }
+  }, [selectedSource, connectionConfig])
+
   const handleConnect = async () => {
     if (!selectedSource) return
 
@@ -423,24 +510,46 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
         onConnect(selectedSource, { ...connectionConfig, dataset }, connectionMode, dataset.id)
       }
       // Handle database connections
-      else if (selectedSource.category === 'database' && connectionConfig.server) {
+      else if (selectedSource.category === 'database' || selectedSource.category === 'azure') {
         const datasetName = connectionConfig.database || `${selectedSource.name} Connection`
 
         console.log('Creating database dataset:', { workspaceId, datasetName, connectorType: selectedSource.type })
+
+        // Map connection config to match backend expectations
+        const dbConfig: any = {}
+
+        // Map host/server fields
+        if (connectionConfig.host) {
+          dbConfig.host = connectionConfig.host
+        } else if (connectionConfig.server) {
+          dbConfig.host = connectionConfig.server
+        } else if (connectionConfig.server_hostname) {
+          dbConfig.host = connectionConfig.server_hostname
+        } else if (connectionConfig.account) {
+          dbConfig.host = connectionConfig.account
+        }
+
+        // Add other fields
+        if (connectionConfig.database) dbConfig.database = connectionConfig.database
+        if (connectionConfig.port) dbConfig.port = connectionConfig.port
+        if (connectionConfig.username) dbConfig.username = connectionConfig.username
+        if (connectionConfig.password) dbConfig.password = connectionConfig.password
+        if (connectionConfig.connectionString) dbConfig.connectionString = connectionConfig.connectionString
+
+        // Add service-specific fields
+        if (connectionConfig.http_path) dbConfig.http_path = connectionConfig.http_path
+        if (connectionConfig.access_token) dbConfig.access_token = connectionConfig.access_token
+        if (connectionConfig.schema) dbConfig.schema = connectionConfig.schema
+        if (connectionConfig.warehouse) dbConfig.warehouse = connectionConfig.warehouse
+        if (connectionConfig.project_id) dbConfig.project_id = connectionConfig.project_id
+        if (connectionConfig.credentials) dbConfig.credentials = connectionConfig.credentials
 
         // Create database dataset via service
         const dataset = await datasetService.createDatabaseDataset(
           workspaceId,
           datasetName,
           selectedSource.type,
-          {
-            server: connectionConfig.server,
-            database: connectionConfig.database,
-            port: connectionConfig.port,
-            username: connectionConfig.username,
-            password: connectionConfig.password,
-            connectionString: connectionConfig.connectionString
-          }
+          dbConfig
         )
 
         console.log('Database dataset created successfully:', dataset)
@@ -1117,30 +1226,14 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
                 <>
                   <button
                     onClick={testConnection}
-                    disabled={isConnecting || (
-                      selectedSource.category === 'file' ?
-                        (!connectionConfig.file && !connectionConfig.url) :
-                        selectedSource.category === 'database' ?
-                          (!connectionConfig.server) :
-                          selectedSource.category === 'online-services' ?
-                            (!connectionConfig.url) :
-                            false
-                    )}
+                    disabled={isConnecting || !isConnectionConfigValid()}
                     className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
                   >
                     {isConnecting ? 'Testing...' : 'Test Connection'}
                   </button>
                   <button
                     onClick={handleConnect}
-                    disabled={isConnecting || (
-                      selectedSource.category === 'file' ?
-                        (!connectionConfig.file && !connectionConfig.url) :
-                        selectedSource.category === 'database' ?
-                          (!connectionConfig.server) :
-                          selectedSource.category === 'online-services' ?
-                            (!connectionConfig.url) :
-                            false
-                    )}
+                    disabled={isConnecting || !isConnectionConfigValid()}
                     className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isConnecting ? 'Connecting...' : 'Connect'}

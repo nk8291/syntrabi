@@ -173,8 +173,9 @@ class PostgreSQLConnector(DataSourceConnector):
         database = config.get('database', '')
         username = config.get('username', '')
         password = config.get('password', '')
-        
-        self.connection_string = f"postgresql+asyncpg://{quote_plus(username)}:{quote_plus(password)}@{host}:{port}/{database}"
+
+        # Add connection timeout parameters
+        self.connection_string = f"postgresql+asyncpg://{quote_plus(username)}:{quote_plus(password)}@{host}:{port}/{database}?connect_timeout=10&command_timeout=30"
     
     async def test_connection(self) -> Tuple[bool, str]:
         try:
@@ -187,21 +188,34 @@ class PostgreSQLConnector(DataSourceConnector):
         except Exception as e:
             return False, f"Connection failed: {str(e)}"
     
-    async def get_schema(self) -> Dict[str, Any]:
+    async def get_schema(self, schema_filter: str = 'public', limit_tables: int = None) -> Dict[str, Any]:
         try:
-            engine = create_async_engine(self.connection_string)
+            engine = create_async_engine(
+                self.connection_string,
+                pool_pre_ping=True,
+                pool_size=5,
+                max_overflow=10,
+                pool_timeout=10
+            )
+
             async with engine.begin() as conn:
-                # Get tables
+                # Get tables - limit to specific schema for speed
                 tables_query = """
                 SELECT schemaname, tablename, 'BASE TABLE' as table_type
                 FROM pg_tables
-                WHERE schemaname NOT IN ('information_schema', 'pg_catalog')
-                ORDER BY schemaname, tablename
+                WHERE schemaname = :schema_filter
+                ORDER BY tablename
                 """
-                tables_result = await conn.execute(text(tables_query))
+
+                if limit_tables:
+                    tables_query += f" LIMIT {limit_tables}"
+
+                tables_result = await conn.execute(text(tables_query), {"schema_filter": schema_filter})
                 tables = tables_result.fetchall()
-                
+
                 schema = {"tables": []}
+
+                # Process tables in batches for better performance
                 for table in tables:
                     table_info = {
                         "schema": table[0],
@@ -209,7 +223,7 @@ class PostgreSQLConnector(DataSourceConnector):
                         "type": table[2],
                         "columns": []
                     }
-                    
+
                     # Get columns for each table
                     columns_query = """
                     SELECT column_name, data_type, is_nullable, column_default
@@ -217,9 +231,12 @@ class PostgreSQLConnector(DataSourceConnector):
                     WHERE table_schema = :schema AND table_name = :table_name
                     ORDER BY ordinal_position
                     """
-                    columns_result = await conn.execute(text(columns_query), {"schema": table[0], "table_name": table[1]})
+                    columns_result = await conn.execute(
+                        text(columns_query),
+                        {"schema": table[0], "table_name": table[1]}
+                    )
                     columns = columns_result.fetchall()
-                    
+
                     for column in columns:
                         table_info["columns"].append({
                             "name": column[0],
@@ -227,9 +244,9 @@ class PostgreSQLConnector(DataSourceConnector):
                             "nullable": column[2] == 'YES',
                             "default": column[3]
                         })
-                    
+
                     schema["tables"].append(table_info)
-            
+
             await engine.dispose()
             return schema
         except Exception as e:

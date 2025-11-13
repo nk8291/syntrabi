@@ -43,20 +43,26 @@ class DatasetService:
                 connector_config=connection_config or {},
                 status=DatasetStatus.PROCESSING
             )
-            
+
             session.add(dataset)
             await session.commit()
             await session.refresh(dataset)
-            
+
             # Process the dataset based on type
             if connector_type == ConnectorType.CSV and file_content:
                 await DatasetService._process_csv_data(session, dataset, file_content)
             else:
-                # For database connections, create sample schema
-                await DatasetService._create_sample_schema(session, dataset, connector_type)
-            
+                # For database connections, just mark as ready with placeholder schema
+                # Real schema will be fetched on first query/preview
+                dataset.status = DatasetStatus.READY
+                dataset.schema_json = {
+                    "tables": [],
+                    "message": "Schema will be loaded when you access the dataset"
+                }
+                await session.commit()
+
             return dataset
-            
+
         except Exception as e:
             logger.error("Failed to create dataset", error=str(e), workspace_id=workspace_id)
             await session.rollback()
@@ -145,8 +151,99 @@ class DatasetService:
         dataset: Dataset,
         connector_type: ConnectorType
     ) -> None:
-        """Create sample schema for database connections."""
+        """Create schema for database connections by fetching real schema."""
         try:
+            # Import here to avoid circular dependency
+            from app.services.data_connectors import DataConnectorFactory
+
+            # Try to fetch real schema from the database
+            try:
+                connector = DataConnectorFactory.create_connector(connector_type, dataset.connector_config)
+                # Fetch schema from 'public' schema only, limit to first 50 tables for faster response
+                real_schema = await connector.get_schema(schema_filter='public', limit_tables=50)
+
+                if "error" not in real_schema and real_schema.get("tables"):
+                    # Use real schema from database
+                    schema_json = {"tables": []}
+
+                    for table_info in real_schema["tables"]:
+                        # Convert database schema format to our internal format
+                        table_schema = {
+                            "name": f"{table_info.get('schema', 'public')}.{table_info['name']}",
+                            "displayName": table_info['name'].replace('_', ' ').title(),
+                            "columns": [],
+                            "rowCount": 0  # Will be updated when data is fetched
+                        }
+
+                        # Map PostgreSQL types to Power BI types
+                        type_mapping = {
+                            'integer': 'integer',
+                            'bigint': 'integer',
+                            'smallint': 'integer',
+                            'numeric': 'decimal',
+                            'decimal': 'decimal',
+                            'real': 'decimal',
+                            'double precision': 'decimal',
+                            'money': 'decimal',
+                            'character varying': 'string',
+                            'varchar': 'string',
+                            'character': 'string',
+                            'char': 'string',
+                            'text': 'string',
+                            'boolean': 'boolean',
+                            'date': 'date',
+                            'timestamp': 'datetime',
+                            'timestamp without time zone': 'datetime',
+                            'timestamp with time zone': 'datetime',
+                            'time': 'datetime',
+                            'json': 'string',
+                            'jsonb': 'string',
+                            'uuid': 'string'
+                        }
+
+                        for col in table_info["columns"]:
+                            col_type = col['type'].lower()
+                            # Extract base type (e.g., "character varying" from "character varying(255)")
+                            base_type = col_type.split('(')[0].strip()
+                            mapped_type = type_mapping.get(base_type, 'string')
+
+                            table_schema["columns"].append({
+                                "name": col['name'],
+                                "type": mapped_type,
+                                "nullable": col.get('nullable', True),
+                                "description": f"{mapped_type.title()} column"
+                            })
+
+                        schema_json["tables"].append(table_schema)
+
+                        # Create table record in database
+                        table = Table(
+                            dataset_id=dataset.id,
+                            name=table_schema["name"],
+                            display_name=table_schema["displayName"],
+                            description=f"Table from {connector_type.value} connection",
+                            columns=table_schema["columns"],
+                            row_count=0
+                        )
+                        session.add(table)
+
+                    dataset.schema_json = schema_json
+                    dataset.row_count = 0  # Will be calculated when data is queried
+                    dataset.status = DatasetStatus.READY
+
+                    await session.commit()
+
+                    logger.info("Real schema fetched and created for dataset",
+                               dataset_id=str(dataset.id),
+                               connector_type=connector_type.value,
+                               table_count=len(schema_json["tables"]))
+                    return
+
+            except Exception as e:
+                logger.warning(f"Failed to fetch real schema, falling back to sample: {str(e)}")
+                # Fall back to sample schema if real fetch fails
+
+            # Fallback: Create sample schema for database connections
             sample_schemas = {
                 ConnectorType.POSTGRESQL: {
                     "tables": [{
@@ -355,27 +452,191 @@ class DatasetService:
             return False
 
     @staticmethod
+    async def fetch_and_cache_schema(
+        session: AsyncSession,
+        dataset: Dataset
+    ) -> None:
+        """Fetch real schema from database and cache it."""
+        try:
+            from app.services.data_connectors import DataConnectorFactory
+
+            # Check if schema is already fetched (and not just placeholder)
+            if (dataset.schema_json and
+                dataset.schema_json.get("tables") and
+                len(dataset.schema_json["tables"]) > 0 and
+                not dataset.schema_json.get("message")):  # Skip if it's the placeholder
+                return  # Schema already cached
+
+            logger.info(f"Fetching schema for dataset {dataset.id}")
+
+            # Create connector (this creates a NEW engine, separate from our session)
+            connector = DataConnectorFactory.create_connector(
+                dataset.connector_type,
+                dataset.connector_config
+            )
+
+            # Fetch schema from database
+            real_schema = await connector.get_schema(schema_filter='public', limit_tables=50)
+
+            if "error" in real_schema:
+                raise Exception(real_schema["error"])
+
+            if not real_schema.get("tables"):
+                raise Exception("No tables found in database")
+
+            # Convert to our format
+            schema_json = {"tables": []}
+
+            type_mapping = {
+                'integer': 'integer', 'bigint': 'integer', 'smallint': 'integer',
+                'numeric': 'decimal', 'decimal': 'decimal', 'real': 'decimal',
+                'double precision': 'decimal', 'money': 'decimal',
+                'character varying': 'string', 'varchar': 'string',
+                'character': 'string', 'char': 'string', 'text': 'string',
+                'boolean': 'boolean', 'date': 'date',
+                'timestamp': 'datetime', 'timestamp without time zone': 'datetime',
+                'timestamp with time zone': 'datetime', 'time': 'datetime',
+                'json': 'string', 'jsonb': 'string', 'uuid': 'string'
+            }
+
+            for table_info in real_schema["tables"]:
+                table_schema = {
+                    "name": f"{table_info.get('schema', 'public')}.{table_info['name']}",
+                    "displayName": table_info['name'].replace('_', ' ').title(),
+                    "columns": [],
+                    "rowCount": 0
+                }
+
+                for col in table_info["columns"]:
+                    col_type = col['type'].lower()
+                    base_type = col_type.split('(')[0].strip()
+                    mapped_type = type_mapping.get(base_type, 'string')
+
+                    table_schema["columns"].append({
+                        "name": col['name'],
+                        "type": mapped_type,
+                        "nullable": col.get('nullable', True),
+                        "description": f"{mapped_type.title()} column"
+                    })
+
+                schema_json["tables"].append(table_schema)
+
+                # Create table record if it doesn't exist
+                existing_table = await session.execute(
+                    select(Table).where(
+                        Table.dataset_id == dataset.id,
+                        Table.name == table_schema["name"]
+                    )
+                )
+                if not existing_table.scalar_one_or_none():
+                    table = Table(
+                        dataset_id=dataset.id,
+                        name=table_schema["name"],
+                        display_name=table_schema["displayName"],
+                        description=f"Table from {dataset.connector_type.value} connection",
+                        columns=table_schema["columns"],
+                        row_count=0
+                    )
+                    session.add(table)
+
+            # Update dataset with real schema
+            dataset.schema_json = schema_json
+            await session.commit()
+
+            logger.info(f"Schema cached for dataset {dataset.id}, found {len(schema_json['tables'])} tables")
+
+        except Exception as e:
+            logger.error(f"Failed to fetch schema for dataset {dataset.id}: {str(e)}")
+            # Don't raise, just log - dataset can still work with queries
+
+    @staticmethod
     async def query_dataset(
         session: AsyncSession,
         dataset_id: str,
         query_params: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Query dataset and return results."""
+        import time
+        start_time = time.time()
+
         try:
             dataset = await DatasetService.get_dataset_by_id(session, dataset_id)
             if not dataset:
                 raise ValueError(f"Dataset {dataset_id} not found")
 
-            # For demo purposes, generate sample data
+            # For database connectors, fetch schema if not already cached
+            if dataset.connector_type in [
+                ConnectorType.POSTGRESQL,
+                ConnectorType.MYSQL,
+                ConnectorType.BIGQUERY,
+                ConnectorType.SNOWFLAKE
+            ]:
+                # Fetch and cache schema on first access
+                await DatasetService.fetch_and_cache_schema(session, dataset)
+
+            # For database connectors, query the real database
+            if dataset.connector_type in [
+                ConnectorType.POSTGRESQL,
+                ConnectorType.MYSQL,
+                ConnectorType.BIGQUERY,
+                ConnectorType.SNOWFLAKE
+            ]:
+                from app.services.data_connectors import DataConnectorFactory
+
+                try:
+                    connector = DataConnectorFactory.create_connector(
+                        dataset.connector_type,
+                        dataset.connector_config
+                    )
+
+                    # Get the table name from query_params or use first table
+                    table_name = query_params.get("table_name")
+                    if not table_name and dataset.schema_json and dataset.schema_json.get("tables"):
+                        # Use first table by default
+                        table_name = dataset.schema_json["tables"][0]["name"]
+
+                    if table_name:
+                        # Build SQL query
+                        columns = query_params.get("columns", ["*"])
+                        limit = query_params.get("limit", 100)
+
+                        if columns == [] or columns == ["*"]:
+                            col_str = "*"
+                        else:
+                            col_str = ", ".join(f'"{col}"' for col in columns)
+
+                        query = f"SELECT {col_str} FROM {table_name} LIMIT {limit}"
+
+                        # Execute query
+                        result = await connector.execute_query(query, limit=limit)
+
+                        if "error" in result:
+                            raise Exception(result["error"])
+
+                        execution_time = time.time() - start_time
+
+                        return {
+                            "data": result.get("data", []),
+                            "columns": [{"name": col, "type": "string"} for col in result.get("columns", [])],
+                            "total_rows": result.get("row_count", 0),
+                            "execution_time": execution_time
+                        }
+
+                except Exception as e:
+                    logger.warning(f"Failed to query real database, falling back to sample data: {str(e)}")
+                    # Fall back to sample data if query fails
+
+            # Fallback: Generate sample data
             sample_data = DatasetService._generate_sample_data(dataset, query_params)
-            
+
+            execution_time = time.time() - start_time
             return {
                 "data": sample_data["rows"],
                 "columns": sample_data["columns"],
                 "total_rows": sample_data["total_rows"],
-                "execution_time": 0.15
+                "execution_time": execution_time
             }
-            
+
         except Exception as e:
             logger.error("Failed to query dataset", dataset_id=dataset_id, error=str(e))
             raise

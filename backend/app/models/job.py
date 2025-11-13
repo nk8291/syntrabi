@@ -40,8 +40,8 @@ class Job(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     
     # Job identification
-    type = Column(SQLEnum(JobType), nullable=False, index=True)
-    status = Column(SQLEnum(JobStatus), default=JobStatus.PENDING, nullable=False, index=True)
+    type = Column(SQLEnum(JobType, values_callable=lambda x: [e.value for e in x]), nullable=False, index=True)
+    status = Column(SQLEnum(JobStatus, values_callable=lambda x: [e.value for e in x]), default=JobStatus.PENDING, nullable=False, index=True)
     
     # Job payload and configuration
     payload = Column(JSON, nullable=False)  # Input parameters

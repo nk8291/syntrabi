@@ -136,7 +136,10 @@ class DatasetService {
     const response = await apiClient.post(
       `/api/datasets/workspaces/${normalizedWorkspaceId}/datasets`,
       formData,
-      { headers: { 'Content-Type': 'multipart/form-data' } }
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 60000 // 60 seconds for database connection and schema fetch
+      }
     )
     return response.data
   }
