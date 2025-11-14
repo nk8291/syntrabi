@@ -60,6 +60,7 @@ class DatasetService:
                     "message": "Schema will be loaded when you access the dataset"
                 }
                 await session.commit()
+                await session.refresh(dataset)  # Refresh to avoid lazy loading issues
 
             return dataset
 
@@ -70,8 +71,8 @@ class DatasetService:
 
     @staticmethod
     async def _process_csv_data(
-        session: AsyncSession, 
-        dataset: Dataset, 
+        session: AsyncSession,
+        dataset: Dataset,
         file_content: bytes
     ) -> None:
         """Process CSV file and extract schema."""
@@ -79,31 +80,31 @@ class DatasetService:
             # Decode CSV content
             csv_text = file_content.decode('utf-8')
             csv_reader = csv.reader(io.StringIO(csv_text))
-            
+
             # Get headers
             headers = next(csv_reader, [])
             if not headers:
                 raise ValueError("CSV file is empty or has no headers")
-            
-            # Sample rows for type inference
+
             sample_rows = []
-            row_count = 0
+
             for row in csv_reader:
                 row_count += 1
+
                 if len(sample_rows) < 100:  # Sample first 100 rows
                     sample_rows.append(row)
-            
+
             # Infer schema
             columns = []
             for i, header in enumerate(headers):
-                col_type = DatasetService._infer_column_type(sample_rows, i)
+                col_type = DatasetService._infer_column_type(sample_rows, i) 
                 columns.append({
                     "name": header.strip(),
                     "type": col_type,
                     "nullable": True,
                     "description": f"{col_type.title()} column"
                 })
-            
+
             schema_json = {
                 "tables": [{
                     "name": dataset.name,
@@ -112,7 +113,7 @@ class DatasetService:
                     "rowCount": row_count
                 }]
             }
-            
+
             # Create table record
             table = Table(
                 dataset_id=dataset.id,
@@ -122,26 +123,29 @@ class DatasetService:
                 columns=columns,
                 row_count=row_count
             )
-            
+
             session.add(table)
-            
+
             # Update dataset
             dataset.schema_json = schema_json
             dataset.row_count = row_count
             dataset.file_size = len(file_content)
-            dataset.sample_rows = sample_rows[:10]  # Store first 10 rows as sample
+            # Store actual CSV data (up to MAX_STORED_ROWS) as sample for preview
+            dataset.sample_rows = sample_rows[:10]
             dataset.status = DatasetStatus.READY
-            
+
             await session.commit()
-            
-            logger.info("CSV dataset processed successfully", 
+            await session.refresh(dataset)  # Refresh to avoid lazy loading issues
+
+            logger.info("CSV dataset processed successfully",
                        dataset_id=str(dataset.id), row_count=row_count)
-                       
+
         except Exception as e:
             dataset.status = DatasetStatus.ERROR
             dataset.error_message = str(e)
             await session.commit()
-            logger.error("Failed to process CSV data", 
+            await session.refresh(dataset)  # Refresh to avoid lazy loading issues
+            logger.error("Failed to process CSV data",
                         dataset_id=str(dataset.id), error=str(e))
             raise
 
@@ -457,18 +461,18 @@ class DatasetService:
         dataset: Dataset
     ) -> None:
         """Fetch real schema from database and cache it."""
+        from app.services.data_connectors import DataConnectorFactory
+
+        # Check if schema is already fetched (and not just placeholder)
+        if (dataset.schema_json and
+            dataset.schema_json.get("tables") and
+            len(dataset.schema_json["tables"]) > 0 and
+            not dataset.schema_json.get("message")):  # Skip if it's the placeholder
+            return  # Schema already cached
+
+        logger.info(f"Fetching schema for dataset {dataset.id}")
+
         try:
-            from app.services.data_connectors import DataConnectorFactory
-
-            # Check if schema is already fetched (and not just placeholder)
-            if (dataset.schema_json and
-                dataset.schema_json.get("tables") and
-                len(dataset.schema_json["tables"]) > 0 and
-                not dataset.schema_json.get("message")):  # Skip if it's the placeholder
-                return  # Schema already cached
-
-            logger.info(f"Fetching schema for dataset {dataset.id}")
-
             # Create connector (this creates a NEW engine, separate from our session)
             connector = DataConnectorFactory.create_connector(
                 dataset.connector_type,
@@ -479,10 +483,18 @@ class DatasetService:
             real_schema = await connector.get_schema(schema_filter='public', limit_tables=50)
 
             if "error" in real_schema:
-                raise Exception(real_schema["error"])
+                error_msg = f"Failed to fetch schema: {real_schema['error']}"
+                dataset.status = DatasetStatus.ERROR
+                dataset.error_message = error_msg
+                await session.commit()
+                raise Exception(error_msg)
 
             if not real_schema.get("tables"):
-                raise Exception("No tables found in database")
+                error_msg = "No tables found in database. Please check your database connection and permissions."
+                dataset.status = DatasetStatus.ERROR
+                dataset.error_message = error_msg
+                await session.commit()
+                raise Exception(error_msg)
 
             # Convert to our format
             schema_json = {"tables": []}
@@ -541,13 +553,21 @@ class DatasetService:
 
             # Update dataset with real schema
             dataset.schema_json = schema_json
+            dataset.status = DatasetStatus.READY
+            dataset.error_message = None  # Clear any previous errors
             await session.commit()
+            await session.refresh(dataset)  # Refresh to avoid lazy loading issues
 
             logger.info(f"Schema cached for dataset {dataset.id}, found {len(schema_json['tables'])} tables")
 
         except Exception as e:
-            logger.error(f"Failed to fetch schema for dataset {dataset.id}: {str(e)}")
-            # Don't raise, just log - dataset can still work with queries
+            error_msg = f"Failed to fetch schema: {str(e)}"
+            logger.error(f"Failed to fetch schema for dataset {dataset.id}: {error_msg}")
+            dataset.status = DatasetStatus.ERROR
+            dataset.error_message = error_msg
+            await session.commit()
+            # Now raise the error so it surfaces to the user
+            raise
 
     @staticmethod
     async def query_dataset(
@@ -564,6 +584,37 @@ class DatasetService:
             if not dataset:
                 raise ValueError(f"Dataset {dataset_id} not found")
 
+            # Check if dataset is in error state
+            if dataset.status == DatasetStatus.ERROR:
+                raise ValueError(f"Dataset is in error state: {dataset.error_message or 'Unknown error'}")
+
+            # For CSV files, use the actual sample data stored
+            if dataset.connector_type in [ConnectorType.CSV, ConnectorType.TEXT_CSV]:
+                if dataset.sample_rows and len(dataset.sample_rows) > 0:
+                    # Use actual CSV data from sample_rows
+                    limit = query_params.get("limit", 100)
+                    data = dataset.sample_rows[:limit]
+
+                    # Get columns from schema or first row
+                    columns = []
+                    if dataset.schema_json and dataset.schema_json.get("tables"):
+                        columns = [
+                            {"name": col["name"], "type": col["type"]}
+                            for col in dataset.schema_json["tables"][0]["columns"]
+                        ]
+                    elif data and len(data) > 0:
+                        columns = [{"name": col, "type": "string"} for col in data[0].keys()]
+
+                    execution_time = time.time() - start_time
+                    return {
+                        "data": data,
+                        "columns": columns,
+                        "total_rows": len(data),
+                        "execution_time": execution_time
+                    }
+                else:
+                    raise ValueError("No data available for CSV dataset. The CSV may not have been processed correctly.")
+
             # For database connectors, fetch schema if not already cached
             if dataset.connector_type in [
                 ConnectorType.POSTGRESQL,
@@ -571,63 +622,56 @@ class DatasetService:
                 ConnectorType.BIGQUERY,
                 ConnectorType.SNOWFLAKE
             ]:
-                # Fetch and cache schema on first access
+                # Fetch and cache schema on first access (will raise if fails)
                 await DatasetService.fetch_and_cache_schema(session, dataset)
 
-            # For database connectors, query the real database
-            if dataset.connector_type in [
-                ConnectorType.POSTGRESQL,
-                ConnectorType.MYSQL,
-                ConnectorType.BIGQUERY,
-                ConnectorType.SNOWFLAKE
-            ]:
                 from app.services.data_connectors import DataConnectorFactory
 
-                try:
-                    connector = DataConnectorFactory.create_connector(
-                        dataset.connector_type,
-                        dataset.connector_config
-                    )
+                connector = DataConnectorFactory.create_connector(
+                    dataset.connector_type,
+                    dataset.connector_config
+                )
 
-                    # Get the table name from query_params or use first table
-                    table_name = query_params.get("table_name")
-                    if not table_name and dataset.schema_json and dataset.schema_json.get("tables"):
-                        # Use first table by default
-                        table_name = dataset.schema_json["tables"][0]["name"]
+                # Get the table name from query_params or use first table
+                table_name = query_params.get("table_name")
+                if not table_name and dataset.schema_json and dataset.schema_json.get("tables"):
+                    # Use first table by default
+                    table_name = dataset.schema_json["tables"][0]["name"]
 
-                    if table_name:
-                        # Build SQL query
-                        columns = query_params.get("columns", ["*"])
-                        limit = query_params.get("limit", 100)
+                if not table_name:
+                    raise ValueError("No table specified and no tables found in dataset schema.")
 
-                        if columns == [] or columns == ["*"]:
-                            col_str = "*"
-                        else:
-                            col_str = ", ".join(f'"{col}"' for col in columns)
+                # Build SQL query
+                columns = query_params.get("columns", ["*"])
+                limit = query_params.get("limit", 100)
 
-                        query = f"SELECT {col_str} FROM {table_name} LIMIT {limit}"
+                if columns == [] or columns == ["*"]:
+                    col_str = "*"
+                else:
+                    col_str = ", ".join(f'"{col}"' for col in columns)
 
-                        # Execute query
-                        result = await connector.execute_query(query, limit=limit)
+                query = f"SELECT {col_str} FROM {table_name} LIMIT {limit}"
 
-                        if "error" in result:
-                            raise Exception(result["error"])
+                # Execute query
+                result = await connector.execute_query(query, limit=limit)
 
-                        execution_time = time.time() - start_time
+                if "error" in result:
+                    raise Exception(f"Query execution failed: {result['error']}")
 
-                        return {
-                            "data": result.get("data", []),
-                            "columns": [{"name": col, "type": "string"} for col in result.get("columns", [])],
-                            "total_rows": result.get("row_count", 0),
-                            "execution_time": execution_time
-                        }
+                execution_time = time.time() - start_time
 
-                except Exception as e:
-                    logger.warning(f"Failed to query real database, falling back to sample data: {str(e)}")
-                    # Fall back to sample data if query fails
+                return {
+                    "data": result.get("data", []),
+                    "columns": [{"name": col, "type": "string"} for col in result.get("columns", [])],
+                    "total_rows": result.get("row_count", 0),
+                    "execution_time": execution_time
+                }
 
-            # Fallback: Generate sample data
+            # For other connector types, generate sample data
             sample_data = DatasetService._generate_sample_data(dataset, query_params)
+
+            if sample_data["total_rows"] == 0:
+                logger.warning(f"Generated sample data has 0 rows for dataset {dataset_id}")
 
             execution_time = time.time() - start_time
             return {
@@ -704,9 +748,10 @@ class DatasetService:
             # Update refresh timestamp
             dataset.last_refresh = datetime.utcnow()
             dataset.status = DatasetStatus.READY
-            
+
             await session.commit()
-            
+            await session.refresh(dataset)  # Refresh to avoid lazy loading issues
+
             logger.info("Dataset refreshed successfully", dataset_id=dataset_id)
             return dataset
             

@@ -12,7 +12,10 @@
       "Bash(npm uninstall:*)",
       "Bash(npm install:*)",
       "Bash(npm cache clean:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "mcp__ide__getDiagnostics",
+      "WebFetch(domain:sqlalche.me)",
+      "WebFetch(domain:docs.sqlalchemy.org)"
     ],
     "deny": [],
     "ask": []

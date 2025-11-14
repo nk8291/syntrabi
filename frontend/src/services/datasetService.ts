@@ -11,7 +11,7 @@ export interface Dataset {
   workspace_id: string
   name: string
   description?: string
-  connector_type: 'csv' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'excel' | 'json' | 'rest_api'
+  connector_type: string  // Supports all backend ConnectorType enum values
   status: 'pending' | 'processing' | 'ready' | 'error' | 'refreshing'
   connection_config: any
   schema_json: any
@@ -61,17 +61,33 @@ class DatasetService {
   }
 
   /**
-     * Ensure connector type is lowercase
+     * Normalize connector type: convert to lowercase and replace hyphens with underscores
+     * to match backend enum format
      */
-  private normalizeConnectorType(connectorType: string): Dataset['connector_type'] {
-    const lower = connectorType.toLowerCase()
-    const allowed: Dataset['connector_type'][] = [
-      'csv', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'excel', 'json', 'rest_api'
+  private normalizeConnectorType(connectorType: string): string {
+    // Convert to lowercase and replace hyphens with underscores
+    const normalized = connectorType.toLowerCase().replace(/-/g, '_')
+
+    // List of all supported connector types (matching backend ConnectorType enum)
+    const allowed = [
+      // File-based sources
+      'csv', 'excel', 'json', 'xml', 'text_csv', 'parquet', 'pdf',
+      // Database sources
+      'sql_server', 'postgresql', 'mysql', 'oracle', 'azure_sql', 'teradata', 'mariadb',
+      // Cloud and Analytics
+      'bigquery', 'google_bigquery', 'snowflake', 'mongodb', 'databricks', 'azure_databricks', 'amazon_redshift',
+      // Connectivity
+      'web', 'rest_api', 'odata', 'spark', 'odbc', 'jdbc', 'ole_db',
+      // Collaboration
+      'google_sheets', 'sharepoint_folder', 'folder',
+      // Special
+      'blank_query', 'fhir'
     ]
-    if (!allowed.includes(lower as Dataset['connector_type'])) {
-      throw new Error(`Invalid connector type: ${connectorType}`)
+
+    if (!allowed.includes(normalized)) {
+      throw new Error(`Invalid connector type: ${connectorType}. Normalized to: ${normalized}`)
     }
-    return lower as Dataset['connector_type']
+    return normalized
   }
 
   /**
@@ -101,7 +117,7 @@ class DatasetService {
     const formData = new FormData()
     formData.append('file', file)
     formData.append('name', name)
-    formData.append('connector_type', connectorType.toLowerCase())
+    formData.append('connector_type', connectorType)
 
     console.log('Uploading dataset payload:', { workspaceId: normalizedWorkspaceId, name, connector_type: connectorType })
 
@@ -128,7 +144,7 @@ class DatasetService {
 
     const formData = new FormData()
     formData.append('name', name)
-    formData.append('connector_type', normalizedConnector.toLowerCase())
+    formData.append('connector_type', normalizedConnector)
     formData.append('connection_config', JSON.stringify(connectionConfig))
 
     console.log('Creating database dataset payload:', { workspaceId: normalizedWorkspaceId, name, connector_type: normalizedConnector })
@@ -138,7 +154,7 @@ class DatasetService {
       formData,
       {
         headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 60000 // 60 seconds for database connection and schema fetch
+        timeout: 200000000 // 60 seconds for database connection and schema fetch
       }
     )
     return response.data

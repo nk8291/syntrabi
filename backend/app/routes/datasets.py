@@ -7,7 +7,7 @@ from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import update
+from sqlalchemy import update, select
 import structlog
 import time
 from datetime import datetime
@@ -21,7 +21,6 @@ from app.models.workspace import Workspace
 from app.services.dataset_service import DatasetService
 from app.services.data_connectors import DataSourceManager, DataConnectorFactory
 from app.services.pbids_service import PBIDSManager
-from app.services.workspace_service import WorkspaceService
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -217,9 +216,10 @@ async def create_dataset(
     """Create dataset from file upload or connector."""
     try:
         # Ensure workspace exists - create default workspace if needed
-        # We need to do this in a separate transaction to avoid greenlet issues
-        workspace_service = WorkspaceService(session)
-        workspace = await workspace_service.get_workspace_by_id(workspace_id)
+        # Check workspace existence without loading relationships to avoid greenlet issues
+        stmt = select(Workspace).where(Workspace.id == workspace_id)
+        result = await session.execute(stmt)
+        workspace = result.scalar_one_or_none()
 
         if not workspace:
             logger.info(f"Workspace {workspace_id} not found, creating default workspace")
