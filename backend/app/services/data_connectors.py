@@ -68,17 +68,21 @@ class SQLServerConnector(DataSourceConnector):
             self.connection_string = f"mssql+pyodbc://{quote_plus(username)}:{quote_plus(password)}@{server}:{port}/{database}?driver=ODBC+Driver+17+for+SQL+Server"
     
     async def test_connection(self) -> Tuple[bool, str]:
+        engine = None
         try:
             engine = create_async_engine(self.connection_string)
             async with engine.begin() as conn:
                 result = await conn.execute(text("SELECT 1"))
                 result.fetchone()
-            await engine.dispose()
             return True, "Connection successful"
         except Exception as e:
             return False, f"Connection failed: {str(e)}"
-    
+        finally:
+            if engine is not None:
+                await engine.dispose()
+
     async def get_schema(self) -> Dict[str, Any]:
+        engine = None
         try:
             engine = create_async_engine(self.connection_string)
             async with engine.begin() as conn:
@@ -91,7 +95,7 @@ class SQLServerConnector(DataSourceConnector):
                 """
                 tables_result = await conn.execute(text(tables_query))
                 tables = tables_result.fetchall()
-                
+
                 schema = {"tables": []}
                 for table in tables:
                     table_info = {
@@ -100,7 +104,7 @@ class SQLServerConnector(DataSourceConnector):
                         "type": table[2],
                         "columns": []
                     }
-                    
+
                     # Get columns for each table
                     columns_query = """
                     SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT
@@ -110,7 +114,7 @@ class SQLServerConnector(DataSourceConnector):
                     """
                     columns_result = await conn.execute(text(columns_query), {"schema": table[0], "table_name": table[1]})
                     columns = columns_result.fetchall()
-                    
+
                     for column in columns:
                         table_info["columns"].append({
                             "name": column[0],
@@ -118,17 +122,20 @@ class SQLServerConnector(DataSourceConnector):
                             "nullable": column[2] == 'YES',
                             "default": column[3]
                         })
-                    
+
                     schema["tables"].append(table_info)
-            
-            await engine.dispose()
+
             return schema
         except Exception as e:
             logger.error("Failed to get SQL Server schema", error=str(e))
             return {"error": str(e)}
+        finally:
+            if engine is not None:
+                await engine.dispose()
 
     async def execute_query(self, query: str, limit: int = 1000) -> Dict[str, Any]:
         """Execute a SQL query and return results."""
+        engine = None
         try:
             engine = create_async_engine(self.connection_string)
             async with engine.begin() as conn:
@@ -139,7 +146,6 @@ class SQLServerConnector(DataSourceConnector):
 
                 data = [dict(zip(columns, row)) for row in rows]
 
-            await engine.dispose()
             return {
                 "data": data,
                 "columns": columns,
@@ -148,6 +154,9 @@ class SQLServerConnector(DataSourceConnector):
         except Exception as e:
             logger.error("Failed to execute SQL Server query", error=str(e))
             return {"error": str(e), "data": [], "columns": []}
+        finally:
+            if engine is not None:
+                await engine.dispose()
 
     async def get_sample_data(self, table_name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
         """Get sample data from a table."""
@@ -174,24 +183,38 @@ class PostgreSQLConnector(DataSourceConnector):
         username = config.get('username', '')
         password = config.get('password', '')
 
-        # Add connection timeout parameters
-        self.connection_string = f"postgresql+asyncpg://{quote_plus(username)}:{quote_plus(password)}@{host}:{port}/{database}?connect_timeout=10&command_timeout=30"
-    
+        # Build connection string without timeout parameters (they go in connect_args)
+        self.connection_string = f"postgresql+asyncpg://{quote_plus(username)}:{quote_plus(password)}@{host}:{port}/{database}"
+
+        # Store connection arguments for asyncpg
+        self.connect_args = {
+            'timeout': 30,  # Connection timeout in seconds
+            'command_timeout': 30  # Query timeout in seconds
+        }
+
     async def test_connection(self) -> Tuple[bool, str]:
-        try:
-            engine = create_async_engine(self.connection_string)
-            async with engine.begin() as conn:
-                result = await conn.execute(text("SELECT 1"))
-                result.fetchone()
-            await engine.dispose()
-            return True, "Connection successful"
-        except Exception as e:
-            return False, f"Connection failed: {str(e)}"
-    
-    async def get_schema(self, schema_filter: str = 'public', limit_tables: int = None) -> Dict[str, Any]:
+        engine = None
         try:
             engine = create_async_engine(
                 self.connection_string,
+                connect_args=self.connect_args
+            )
+            async with engine.begin() as conn:
+                result = await conn.execute(text("SELECT 1"))
+                result.fetchone()
+            return True, "Connection successful"
+        except Exception as e:
+            return False, f"Connection failed: {str(e)}"
+        finally:
+            if engine is not None:
+                await engine.dispose()
+    
+    async def get_schema(self, schema_filter: str = 'public', limit_tables: int = None) -> Dict[str, Any]:
+        engine = None
+        try:
+            engine = create_async_engine(
+                self.connection_string,
+                connect_args=self.connect_args,
                 pool_pre_ping=True,
                 pool_size=5,
                 max_overflow=10,
@@ -247,16 +270,23 @@ class PostgreSQLConnector(DataSourceConnector):
 
                     schema["tables"].append(table_info)
 
-            await engine.dispose()
             return schema
         except Exception as e:
             logger.error("Failed to get PostgreSQL schema", error=str(e))
             return {"error": str(e)}
+        finally:
+            # Ensure engine is always disposed to prevent greenlet context issues
+            if engine is not None:
+                await engine.dispose()
 
     async def execute_query(self, query: str, limit: int = 1000) -> Dict[str, Any]:
         """Execute a SQL query and return results."""
+        engine = None
         try:
-            engine = create_async_engine(self.connection_string)
+            engine = create_async_engine(
+                self.connection_string,
+                connect_args=self.connect_args
+            )
             async with engine.begin() as conn:
                 limited_query = f"{query} LIMIT {limit}" if "SELECT" in query.upper() and "LIMIT" not in query.upper() else query
                 result = await conn.execute(text(limited_query))
@@ -265,7 +295,6 @@ class PostgreSQLConnector(DataSourceConnector):
 
                 data = [dict(zip(columns, row)) for row in rows]
 
-            await engine.dispose()
             return {
                 "data": data,
                 "columns": columns,
@@ -274,6 +303,9 @@ class PostgreSQLConnector(DataSourceConnector):
         except Exception as e:
             logger.error("Failed to execute PostgreSQL query", error=str(e))
             return {"error": str(e), "data": [], "columns": []}
+        finally:
+            if engine is not None:
+                await engine.dispose()
 
     async def get_sample_data(self, table_name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
         """Get sample data from a table."""
@@ -303,17 +335,21 @@ class MySQLConnector(DataSourceConnector):
         self.connection_string = f"mysql+aiomysql://{quote_plus(username)}:{quote_plus(password)}@{host}:{port}/{database}"
 
     async def test_connection(self) -> Tuple[bool, str]:
+        engine = None
         try:
             engine = create_async_engine(self.connection_string)
             async with engine.begin() as conn:
                 result = await conn.execute(text("SELECT 1"))
                 result.fetchone()
-            await engine.dispose()
             return True, "Connection successful"
         except Exception as e:
             return False, f"Connection failed: {str(e)}"
+        finally:
+            if engine is not None:
+                await engine.dispose()
 
     async def get_schema(self) -> Dict[str, Any]:
+        engine = None
         try:
             engine = create_async_engine(self.connection_string)
             async with engine.begin() as conn:
@@ -347,14 +383,17 @@ class MySQLConnector(DataSourceConnector):
 
                     schema["tables"].append(table_info)
 
-            await engine.dispose()
             return schema
         except Exception as e:
             logger.error("Failed to get MySQL schema", error=str(e))
             return {"error": str(e)}
+        finally:
+            if engine is not None:
+                await engine.dispose()
 
     async def execute_query(self, query: str, limit: int = 1000) -> Dict[str, Any]:
         """Execute a SQL query and return results."""
+        engine = None
         try:
             engine = create_async_engine(self.connection_string)
             async with engine.begin() as conn:
@@ -365,7 +404,6 @@ class MySQLConnector(DataSourceConnector):
 
                 data = [dict(zip(columns, row)) for row in rows]
 
-            await engine.dispose()
             return {
                 "data": data,
                 "columns": columns,
@@ -374,6 +412,9 @@ class MySQLConnector(DataSourceConnector):
         except Exception as e:
             logger.error("Failed to execute MySQL query", error=str(e))
             return {"error": str(e), "data": [], "columns": []}
+        finally:
+            if engine is not None:
+                await engine.dispose()
 
     async def get_sample_data(self, table_name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
         """Get sample data from a table."""

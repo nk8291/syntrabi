@@ -20,7 +20,7 @@ import { datasetService, Dataset } from '@/services/datasetService'
 
 interface PowerBIFieldsPanelProps {
   workspaceId: string
-  onFieldDrop: (field: any, wellType: string, visualId?: string) => void
+  onFieldDrop?: (field: any, wellType: string, visualId?: string) => void
 }
 
 interface Field {
@@ -95,29 +95,50 @@ const PowerBIFieldsPanel: React.FC<PowerBIFieldsPanelProps> = ({
   }
 
   const extractTablesFromDataset = (dataset: Dataset): Table[] => {
-    if (!dataset.schema_json?.columns) return []
-    
-    // For now, create a single table per dataset
-    // In the future, this would handle multiple tables from database connections
-    const table: Table = {
-      id: `${dataset.id}-table`,
-      name: dataset.name,
-      displayName: dataset.name,
-      expanded: true,
-      isFactTable: true,
-      fields: dataset.schema_json.columns.map((column: any, index: number) => ({
-        id: `${dataset.id}-${column.name}-${index}`,
-        name: column.name,
-        type: column.type,
-        table: dataset.name,
-        isVisible: true,
-        isKey: column.name.toLowerCase().includes('id') || column.name.toLowerCase().includes('key'),
-        aggregation: getDefaultAggregation(column.type),
-        description: column.description || ''
+    // Handle new schema structure: schema_json.tables[]
+    if (dataset.schema_json?.tables && Array.isArray(dataset.schema_json.tables)) {
+      return dataset.schema_json.tables.map((tableData: any) => ({
+        id: `${dataset.id}-${tableData.name}`,
+        name: tableData.name,
+        displayName: tableData.displayName || tableData.name,
+        expanded: true,
+        isFactTable: tableData.name.toLowerCase().includes('fact') || tableData.name.toLowerCase().includes('sales'),
+        fields: (tableData.columns || []).map((column: any, index: number) => ({
+          id: `${dataset.id}-${tableData.name}-${column.name}-${index}`,
+          name: column.name,
+          type: column.type,
+          table: tableData.name,
+          isVisible: true,
+          isKey: column.name.toLowerCase().includes('id') || column.name.toLowerCase().includes('key'),
+          aggregation: getDefaultAggregation(column.type),
+          description: column.description || ''
+        }))
       }))
     }
-    
-    return [table]
+
+    // Fallback: Handle legacy schema structure with columns directly
+    if (dataset.schema_json?.columns && Array.isArray(dataset.schema_json.columns)) {
+      const table: Table = {
+        id: `${dataset.id}-table`,
+        name: dataset.name,
+        displayName: dataset.name,
+        expanded: true,
+        isFactTable: true,
+        fields: dataset.schema_json.columns.map((column: any, index: number) => ({
+          id: `${dataset.id}-${column.name}-${index}`,
+          name: column.name,
+          type: column.type,
+          table: dataset.name,
+          isVisible: true,
+          isKey: column.name.toLowerCase().includes('id') || column.name.toLowerCase().includes('key'),
+          aggregation: getDefaultAggregation(column.type),
+          description: column.description || ''
+        }))
+      }
+      return [table]
+    }
+
+    return []
   }
   
   const getDefaultAggregation = (type: string): 'sum' | 'count' | 'avg' | 'min' | 'max' | 'none' => {
@@ -308,11 +329,16 @@ const DraggableField: React.FC<{
 }> = ({ field, onToggleVisibility, getFieldIcon }) => {
   const [{ isDragging }, drag] = useDrag({
     type: 'field',
-    item: { 
-      id: field.id,
-      name: field.name,
-      type: field.type,
-      table: field.table
+    item: {
+      field: {
+        id: field.id,
+        name: field.name,
+        type: field.type,
+        table: field.table,
+        aggregation: field.aggregation,
+        isKey: field.isKey,
+        description: field.description
+      }
     },
     collect: (monitor) => ({
       isDragging: monitor.isDragging(),

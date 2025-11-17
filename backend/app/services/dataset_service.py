@@ -51,9 +51,22 @@ class DatasetService:
             # Process the dataset based on type
             if connector_type == ConnectorType.CSV and file_content:
                 await DatasetService._process_csv_data(session, dataset, file_content)
+            elif connector_type in [
+                ConnectorType.POSTGRESQL,
+                ConnectorType.MYSQL,
+                ConnectorType.SQL_SERVER,
+                ConnectorType.MARIADB,
+                ConnectorType.BIGQUERY,
+                ConnectorType.SNOWFLAKE,
+                ConnectorType.ORACLE,
+                ConnectorType.DATABRICKS,
+                ConnectorType.AZURE_DATABRICKS
+            ]:
+                # For database connections, fetch real schema immediately
+                # This provides a Power BI-like experience where tables are visible after connection
+                await DatasetService._create_sample_schema(session, dataset, connector_type)
             else:
-                # For database connections, just mark as ready with placeholder schema
-                # Real schema will be fetched on first query/preview
+                # For other connector types, mark as ready with placeholder
                 dataset.status = DatasetStatus.READY
                 dataset.schema_json = {
                     "tables": [],
@@ -87,6 +100,7 @@ class DatasetService:
                 raise ValueError("CSV file is empty or has no headers")
 
             sample_rows = []
+            row_count = 0  # Initialize row counter
 
             for row in csv_reader:
                 row_count += 1
