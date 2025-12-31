@@ -69,7 +69,7 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({
       // Get canvas element directly for accurate positioning
       const canvasElement = document.querySelector('.design-canvas')
       if (!canvasElement) return
-      
+
       const canvasRect = canvasElement.getBoundingClientRect()
       const position = {
         x: snapPositionToGrid(Math.max(0, clientOffset.x - canvasRect.left)),
@@ -82,9 +82,27 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({
         // Handle shape drop - create shape visual
         onAddVisual('shape' as VisualType, position, { shapeType: item.shapeType })
       } else if (item.field) {
-        // Handle field drop - auto-create appropriate visual based on field type
-        const visualType = suggestVisualType(item.field)
-        onAddVisual(visualType, position)
+        // Handle field drop
+        // Check if we're dropping on a selected visual
+        if (selectedVisual) {
+          // Add field to existing visual
+          const updatedFields = [...(selectedVisual.data_binding.fields || []), item.field]
+          onUpdateVisual(selectedVisual.id, {
+            data_binding: {
+              ...selectedVisual.data_binding,
+              fields: updatedFields
+            }
+          })
+        } else {
+          // No visual selected - create a new visual based on field type
+          const visualType = suggestVisualType(item.field)
+          onAddVisual(visualType, position, {
+            data_binding: {
+              dataset_id: item.field.datasetId || '',
+              fields: [item.field]
+            }
+          })
+        }
       }
     },
     collect: (monitor) => ({
@@ -156,6 +174,7 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({
           onResize={(size) => handleVisualResize(visual.id, size)}
           onDelete={() => onDeleteVisual(visual.id)}
           onDuplicate={onDuplicateVisual}
+          onUpdateVisual={onUpdateVisual}
         />
       ))}
 

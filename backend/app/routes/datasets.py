@@ -430,12 +430,12 @@ async def test_data_source_connection(
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unsupported connector type: {connector_type}"
+                detail=f"Unsupported connector type: {connector_type}. Phase 1 supports: csv, excel, json, pdf, postgresql, mysql, mariadb"
             )
-        
+
         # Test connection
         result = await DataSourceManager.test_data_source(connector_enum, config)
-        
+
         if result["success"]:
             logger.info(
                 "Data source connection test successful",
@@ -449,13 +449,13 @@ async def test_data_source_connection(
                 message=result["message"],
                 user_id=str(current_user.id)
             )
-        
+
         return result
-        
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Connection test error", connector_type=connector_type, error=str(e))
+        logger.error("Connection test error", error=str(e), connector_type=connector_type)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Connection test failed: {str(e)}"
@@ -468,7 +468,10 @@ async def get_data_source_schema(
     config: Dict[str, Any],
     current_user: User = Depends(get_current_user)
 ):
-    """Get schema information from a data source."""
+    """
+    Get database schema (tables and columns) after successful connection test.
+    This is step 2 in the new database connector flow.
+    """
     try:
         # Convert string to enum
         try:
@@ -478,30 +481,35 @@ async def get_data_source_schema(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Unsupported connector type: {connector_type}"
             )
-        
+
+        # Only database connectors have schemas
+        if connector_enum not in [ConnectorType.POSTGRESQL, ConnectorType.MYSQL, ConnectorType.MARIADB]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Schema retrieval only supported for database connectors"
+            )
+
         # Get schema
         result = await DataSourceManager.get_data_source_schema(connector_enum, config)
-        
+
         if result["success"]:
             logger.info(
-                "Data source schema retrieved successfully",
+                "Schema retrieval successful",
                 connector_type=connector_type,
+                table_count=len(result.get("schema", {}).get("tables", [])),
                 user_id=str(current_user.id)
             )
+            return result["schema"]
         else:
-            logger.warning(
-                "Failed to retrieve data source schema",
-                connector_type=connector_type,
-                error=result.get("error"),
-                user_id=str(current_user.id)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=result.get("error", "Schema retrieval failed")
             )
-        
-        return result
-        
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Schema retrieval error", connector_type=connector_type, error=str(e))
+        logger.error("Schema retrieval error", error=str(e), connector_type=connector_type)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Schema retrieval failed: {str(e)}"

@@ -1,7 +1,6 @@
 """
-Comprehensive Data Source Connectors for Syntra
-Supports all major Power BI-compatible data sources with authentication and connection management.
-Based on: https://learn.microsoft.com/en-us/power-bi/connect-data/desktop-data-sources
+Data Source Connectors for Syntra - Phase 1 Implementation
+Supports essential file-based and database data sources.
 """
 
 import asyncio
@@ -14,8 +13,8 @@ import structlog
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy import text
 import aiofiles
-# import aiohttp  # TODO: Re-enable when aiohttp dependency is fixed
 from urllib.parse import quote_plus
+from pathlib import Path
 
 from app.models.dataset import ConnectorType
 
@@ -24,157 +23,40 @@ logger = structlog.get_logger()
 
 class DataSourceConnector(ABC):
     """Abstract base class for data source connectors."""
-    
+
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.connection_string = ""
         self.is_connected = False
-    
+
     @abstractmethod
     async def test_connection(self) -> Tuple[bool, str]:
         """Test the connection to the data source."""
         pass
-    
+
     @abstractmethod
     async def get_schema(self) -> Dict[str, Any]:
         """Get the schema/structure of the data source."""
         pass
-    
+
     @abstractmethod
     async def execute_query(self, query: str, limit: int = 1000) -> Dict[str, Any]:
         """Execute a query and return results."""
         pass
-    
+
     @abstractmethod
     async def get_sample_data(self, table_name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
         """Get sample data from the source."""
         pass
 
 
-class SQLServerConnector(DataSourceConnector):
-    """SQL Server database connector."""
-    
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
-        server = config.get('server', 'localhost')
-        database = config.get('database', '')
-        username = config.get('username', '')
-        password = config.get('password', '')
-        port = config.get('port', 1433)
-        
-        if config.get('trusted_connection', False):
-            self.connection_string = f"mssql+pyodbc://{server}:{port}/{database}?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes"
-        else:
-            self.connection_string = f"mssql+pyodbc://{quote_plus(username)}:{quote_plus(password)}@{server}:{port}/{database}?driver=ODBC+Driver+17+for+SQL+Server"
-    
-    async def test_connection(self) -> Tuple[bool, str]:
-        engine = None
-        try:
-            engine = create_async_engine(self.connection_string)
-            async with engine.begin() as conn:
-                result = await conn.execute(text("SELECT 1"))
-                result.fetchone()
-            return True, "Connection successful"
-        except Exception as e:
-            return False, f"Connection failed: {str(e)}"
-        finally:
-            if engine is not None:
-                await engine.dispose()
-
-    async def get_schema(self) -> Dict[str, Any]:
-        engine = None
-        try:
-            engine = create_async_engine(self.connection_string)
-            async with engine.begin() as conn:
-                # Get tables
-                tables_query = """
-                SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE
-                FROM INFORMATION_SCHEMA.TABLES
-                WHERE TABLE_TYPE = 'BASE TABLE'
-                ORDER BY TABLE_SCHEMA, TABLE_NAME
-                """
-                tables_result = await conn.execute(text(tables_query))
-                tables = tables_result.fetchall()
-
-                schema = {"tables": []}
-                for table in tables:
-                    table_info = {
-                        "schema": table[0],
-                        "name": table[1],
-                        "type": table[2],
-                        "columns": []
-                    }
-
-                    # Get columns for each table
-                    columns_query = """
-                    SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT
-                    FROM INFORMATION_SCHEMA.COLUMNS
-                    WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table_name
-                    ORDER BY ORDINAL_POSITION
-                    """
-                    columns_result = await conn.execute(text(columns_query), {"schema": table[0], "table_name": table[1]})
-                    columns = columns_result.fetchall()
-
-                    for column in columns:
-                        table_info["columns"].append({
-                            "name": column[0],
-                            "type": column[1],
-                            "nullable": column[2] == 'YES',
-                            "default": column[3]
-                        })
-
-                    schema["tables"].append(table_info)
-
-            return schema
-        except Exception as e:
-            logger.error("Failed to get SQL Server schema", error=str(e))
-            return {"error": str(e)}
-        finally:
-            if engine is not None:
-                await engine.dispose()
-
-    async def execute_query(self, query: str, limit: int = 1000) -> Dict[str, Any]:
-        """Execute a SQL query and return results."""
-        engine = None
-        try:
-            engine = create_async_engine(self.connection_string)
-            async with engine.begin() as conn:
-                limited_query = f"{query} OFFSET 0 ROWS FETCH NEXT {limit} ROWS ONLY" if "SELECT" in query.upper() else query
-                result = await conn.execute(text(limited_query))
-                rows = result.fetchall()
-                columns = list(result.keys()) if result.keys() else []
-
-                data = [dict(zip(columns, row)) for row in rows]
-
-            return {
-                "data": data,
-                "columns": columns,
-                "row_count": len(data)
-            }
-        except Exception as e:
-            logger.error("Failed to execute SQL Server query", error=str(e))
-            return {"error": str(e), "data": [], "columns": []}
-        finally:
-            if engine is not None:
-                await engine.dispose()
-
-    async def get_sample_data(self, table_name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
-        """Get sample data from a table."""
-        if not table_name:
-            return []
-
-        try:
-            query = f"SELECT TOP {limit} * FROM {table_name}"
-            result = await self.execute_query(query, limit)
-            return result.get("data", [])
-        except Exception as e:
-            logger.error("Failed to get SQL Server sample data", error=str(e))
-            return []
-
+# ============================================================================
+# DATABASE CONNECTORS (Phase 1)
+# ============================================================================
 
 class PostgreSQLConnector(DataSourceConnector):
-    """PostgreSQL database connector."""
-    
+    """PostgreSQL database connector with async support."""
+
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         host = config.get('host', 'localhost')
@@ -183,10 +65,10 @@ class PostgreSQLConnector(DataSourceConnector):
         username = config.get('username', '')
         password = config.get('password', '')
 
-        # Build connection string without timeout parameters (they go in connect_args)
+        # Build connection string
         self.connection_string = f"postgresql+asyncpg://{quote_plus(username)}:{quote_plus(password)}@{host}:{port}/{database}"
 
-        # Store connection arguments for asyncpg
+        # Connection arguments for asyncpg
         self.connect_args = {
             'timeout': 30,  # Connection timeout in seconds
             'command_timeout': 30  # Query timeout in seconds
@@ -208,8 +90,9 @@ class PostgreSQLConnector(DataSourceConnector):
         finally:
             if engine is not None:
                 await engine.dispose()
-    
-    async def get_schema(self, schema_filter: str = 'public', limit_tables: int = None) -> Dict[str, Any]:
+
+    async def get_schema(self, schema_filter: str = None, limit_tables: int = None) -> Dict[str, Any]:
+        """Get database schema with tables and columns from all user schemas."""
         engine = None
         try:
             engine = create_async_engine(
@@ -222,23 +105,22 @@ class PostgreSQLConnector(DataSourceConnector):
             )
 
             async with engine.begin() as conn:
-                # Get tables - limit to specific schema for speed
+                # Get tables from all user schemas (excluding system schemas)
                 tables_query = """
                 SELECT schemaname, tablename, 'BASE TABLE' as table_type
                 FROM pg_tables
-                WHERE schemaname = :schema_filter
-                ORDER BY tablename
+                WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+                ORDER BY schemaname, tablename
                 """
 
                 if limit_tables:
                     tables_query += f" LIMIT {limit_tables}"
 
-                tables_result = await conn.execute(text(tables_query), {"schema_filter": schema_filter})
+                tables_result = await conn.execute(text(tables_query))
                 tables = tables_result.fetchall()
 
                 schema = {"tables": []}
 
-                # Process tables in batches for better performance
                 for table in tables:
                     table_info = {
                         "schema": table[0],
@@ -268,6 +150,22 @@ class PostgreSQLConnector(DataSourceConnector):
                             "default": column[3]
                         })
 
+                    # Try to get approximate row count (fast for PostgreSQL)
+                    try:
+                        row_count_query = """
+                        SELECT reltuples::bigint AS estimate
+                        FROM pg_class
+                        WHERE oid = :table_oid::regclass
+                        """
+                        row_result = await conn.execute(
+                            text(row_count_query),
+                            {"table_oid": f"{table[0]}.{table[1]}"}
+                        )
+                        row_count = row_result.scalar()
+                        table_info["row_count"] = int(row_count) if row_count else 0
+                    except:
+                        table_info["row_count"] = 0
+
                     schema["tables"].append(table_info)
 
             return schema
@@ -275,7 +173,6 @@ class PostgreSQLConnector(DataSourceConnector):
             logger.error("Failed to get PostgreSQL schema", error=str(e))
             return {"error": str(e)}
         finally:
-            # Ensure engine is always disposed to prevent greenlet context issues
             if engine is not None:
                 await engine.dispose()
 
@@ -322,7 +219,7 @@ class PostgreSQLConnector(DataSourceConnector):
 
 
 class MySQLConnector(DataSourceConnector):
-    """MySQL database connector."""
+    """MySQL database connector with async support."""
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
@@ -349,28 +246,43 @@ class MySQLConnector(DataSourceConnector):
                 await engine.dispose()
 
     async def get_schema(self) -> Dict[str, Any]:
+        """Get database schema with tables and columns from all user databases."""
         engine = None
         try:
             engine = create_async_engine(self.connection_string)
             async with engine.begin() as conn:
-                # Get tables
-                tables_query = "SHOW TABLES"
+                # Get all user databases and their tables (excluding system databases)
+                tables_query = """
+                SELECT table_schema, table_name, table_type
+                FROM information_schema.tables
+                WHERE table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+                ORDER BY table_schema, table_name
+                """
                 tables_result = await conn.execute(text(tables_query))
                 tables = tables_result.fetchall()
 
                 schema = {"tables": []}
                 for table in tables:
-                    table_name = table[0]
+                    schema_name = table[0]
+                    table_name = table[1]
                     table_info = {
-                        "schema": self.config.get('database', ''),
+                        "schema": schema_name,
                         "name": table_name,
-                        "type": "BASE TABLE",
+                        "type": table[2],
                         "columns": []
                     }
 
                     # Get columns for each table
-                    columns_query = f"DESCRIBE {table_name}"
-                    columns_result = await conn.execute(columns_query)
+                    columns_query = """
+                    SELECT column_name, column_type, is_nullable, column_default
+                    FROM information_schema.columns
+                    WHERE table_schema = :schema AND table_name = :table
+                    ORDER BY ordinal_position
+                    """
+                    columns_result = await conn.execute(
+                        text(columns_query),
+                        {"schema": schema_name, "table": table_name}
+                    )
                     columns = columns_result.fetchall()
 
                     for column in columns:
@@ -378,8 +290,24 @@ class MySQLConnector(DataSourceConnector):
                             "name": column[0],
                             "type": column[1],
                             "nullable": column[2] == 'YES',
-                            "default": column[4]
+                            "default": column[3]
                         })
+
+                    # Get approximate row count
+                    try:
+                        row_count_query = """
+                        SELECT table_rows
+                        FROM information_schema.tables
+                        WHERE table_schema = :schema AND table_name = :table
+                        """
+                        row_result = await conn.execute(
+                            text(row_count_query),
+                            {"schema": schema_name, "table": table_name}
+                        )
+                        row_count = row_result.scalar()
+                        table_info["row_count"] = int(row_count) if row_count else 0
+                    except:
+                        table_info["row_count"] = 0
 
                     schema["tables"].append(table_info)
 
@@ -431,11 +359,12 @@ class MySQLConnector(DataSourceConnector):
 
 
 class MariaDBConnector(MySQLConnector):
-    """MariaDB database connector - uses MySQL protocol."""
+    """MariaDB database connector - uses MySQL wire protocol."""
 
     def __init__(self, config: Dict[str, Any]):
-        # MariaDB uses the same protocol as MySQL
+        # MariaDB is compatible with MySQL protocol
         super().__init__(config)
+        # Connection string is identical to MySQL
         host = config.get('host', 'localhost')
         port = config.get('port', 3306)
         database = config.get('database', '')
@@ -445,268 +374,22 @@ class MariaDBConnector(MySQLConnector):
         self.connection_string = f"mysql+aiomysql://{quote_plus(username)}:{quote_plus(password)}@{host}:{port}/{database}"
 
 
-class TeradataConnector(DataSourceConnector):
-    """Teradata database connector."""
-
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
-        host = config.get('host', 'localhost')
-        port = config.get('port', 1025)
-        database = config.get('database', '')
-        username = config.get('username', '')
-        password = config.get('password', '')
-
-        # Teradata connection string format
-        self.connection_string = f"teradatasql://{quote_plus(username)}:{quote_plus(password)}@{host}:{port}/{database}"
-
-    async def test_connection(self) -> Tuple[bool, str]:
-        try:
-            # Note: Requires teradatasql driver
-            return True, "Teradata connector configured (requires teradatasql driver)"
-        except Exception as e:
-            return False, f"Connection failed: {str(e)}"
-
-    async def get_schema(self) -> Dict[str, Any]:
-        return {"tables": [], "note": "Teradata schema inspection requires teradatasql driver"}
-
-    async def execute_query(self, query: str, limit: int = 1000) -> Dict[str, Any]:
-        return {"data": [], "note": "Teradata query execution requires teradatasql driver"}
-
-    async def get_sample_data(self, table_name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
-        return []
-
-
-class DatabricksConnector(DataSourceConnector):
-    """Databricks SQL connector."""
-
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
-        server_hostname = config.get('server_hostname', '')
-        http_path = config.get('http_path', '')
-        access_token = config.get('access_token', '')
-
-        # Databricks connection details
-        self.server_hostname = server_hostname
-        self.http_path = http_path
-        self.access_token = access_token
-
-    async def test_connection(self) -> Tuple[bool, str]:
-        try:
-            # Note: Requires databricks-sql-connector
-            return True, "Databricks connector configured (requires databricks-sql-connector)"
-        except Exception as e:
-            return False, f"Connection failed: {str(e)}"
-
-    async def get_schema(self) -> Dict[str, Any]:
-        return {"catalogs": [], "note": "Databricks schema inspection requires databricks-sql-connector"}
-
-    async def execute_query(self, query: str, limit: int = 1000) -> Dict[str, Any]:
-        return {"data": [], "note": "Databricks query execution requires databricks-sql-connector"}
-
-    async def get_sample_data(self, table_name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
-        return []
-
-
-class SparkConnector(DataSourceConnector):
-    """Apache Spark connector."""
-
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
-        host = config.get('host', 'localhost')
-        port = config.get('port', 10000)
-        database = config.get('database', 'default')
-        username = config.get('username', '')
-        password = config.get('password', '')
-
-        # Spark Thrift Server connection
-        self.host = host
-        self.port = port
-        self.database = database
-
-    async def test_connection(self) -> Tuple[bool, str]:
-        try:
-            # Note: Requires pyhive or similar
-            return True, "Spark connector configured (requires pyhive or spark-sql driver)"
-        except Exception as e:
-            return False, f"Connection failed: {str(e)}"
-
-    async def get_schema(self) -> Dict[str, Any]:
-        return {"databases": [], "note": "Spark schema inspection requires pyhive or spark-sql driver"}
-
-    async def execute_query(self, query: str, limit: int = 1000) -> Dict[str, Any]:
-        return {"data": [], "note": "Spark query execution requires pyhive or spark-sql driver"}
-
-    async def get_sample_data(self, table_name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
-        return []
-
-
-class ODataConnector(DataSourceConnector):
-    """OData feed connector."""
-
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
-        self.base_url = config.get('url', '')
-        self.version = config.get('version', '4.0')  # OData version
-        self.headers = config.get('headers', {})
-        self.auth_type = config.get('auth_type', 'none')
-        self.username = config.get('username', '')
-        self.password = config.get('password', '')
-
-        if self.auth_type == 'basic':
-            import base64
-            credentials = base64.b64encode(f"{self.username}:{self.password}".encode()).decode()
-            self.headers['Authorization'] = f"Basic {credentials}"
-
-    async def test_connection(self) -> Tuple[bool, str]:
-        try:
-            # Note: Requires aiohttp or requests
-            return True, "OData connector configured (requires HTTP client)"
-        except Exception as e:
-            return False, f"Connection failed: {str(e)}"
-
-    async def get_schema(self) -> Dict[str, Any]:
-        return {"entitySets": [], "note": "OData schema inspection requires HTTP client to fetch $metadata"}
-
-    async def execute_query(self, query: str, limit: int = 1000) -> Dict[str, Any]:
-        return {"data": [], "note": "OData query execution requires HTTP client"}
-
-    async def get_sample_data(self, table_name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
-        return []
-
-
-class ODBCConnector(DataSourceConnector):
-    """ODBC generic connector."""
-
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
-        self.connection_string = config.get('connection_string', '')
-        self.dsn = config.get('dsn', '')
-        self.driver = config.get('driver', '')
-
-        # Build connection string if not provided
-        if not self.connection_string and self.dsn:
-            self.connection_string = f"odbc://{self.dsn}"
-        elif not self.connection_string and self.driver:
-            server = config.get('server', 'localhost')
-            database = config.get('database', '')
-            self.connection_string = f"odbc://?driver={self.driver}&server={server}&database={database}"
-
-    async def test_connection(self) -> Tuple[bool, str]:
-        try:
-            # Note: Requires pyodbc
-            return True, "ODBC connector configured (requires pyodbc driver)"
-        except Exception as e:
-            return False, f"Connection failed: {str(e)}"
-
-    async def get_schema(self) -> Dict[str, Any]:
-        return {"tables": [], "note": "ODBC schema inspection requires pyodbc driver"}
-
-    async def execute_query(self, query: str, limit: int = 1000) -> Dict[str, Any]:
-        return {"data": [], "note": "ODBC query execution requires pyodbc driver"}
-
-    async def get_sample_data(self, table_name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
-        return []
-
-
-class JDBCConnector(DataSourceConnector):
-    """JDBC generic connector."""
-
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
-        self.jdbc_url = config.get('jdbc_url', '')
-        self.driver_class = config.get('driver_class', '')
-        self.username = config.get('username', '')
-        self.password = config.get('password', '')
-
-    async def test_connection(self) -> Tuple[bool, str]:
-        try:
-            # Note: Requires jaydebeapi or JayDeBeApi
-            return True, "JDBC connector configured (requires JayDeBeApi)"
-        except Exception as e:
-            return False, f"Connection failed: {str(e)}"
-
-    async def get_schema(self) -> Dict[str, Any]:
-        return {"tables": [], "note": "JDBC schema inspection requires JayDeBeApi"}
-
-    async def execute_query(self, query: str, limit: int = 1000) -> Dict[str, Any]:
-        return {"data": [], "note": "JDBC query execution requires JayDeBeApi"}
-
-    async def get_sample_data(self, table_name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
-        return []
-
-
-class WebAPIConnector(DataSourceConnector):
-    """Web API/REST connector."""
-    
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
-        self.base_url = config.get('url', '')
-        self.headers = config.get('headers', {})
-        self.auth_type = config.get('auth_type', 'none')
-        self.api_key = config.get('api_key', '')
-        
-        if self.auth_type == 'bearer':
-            self.headers['Authorization'] = f"Bearer {self.api_key}"
-        elif self.auth_type == 'api_key':
-            self.headers[config.get('api_key_header', 'X-API-Key')] = self.api_key
-    
-    async def test_connection(self) -> Tuple[bool, str]:
-        try:
-            # async with aiohttp.ClientSession() as session:  # TODO: Re-enable when aiohttp dependency is fixed
-            raise NotImplementedError("HTTP connector requires aiohttp dependency")
-        except Exception as e:
-            return False, f"Connection failed: {str(e)}"
-    
-    async def get_schema(self) -> Dict[str, Any]:
-        try:
-            # async with aiohttp.ClientSession() as session:  # TODO: Re-enable when aiohttp dependency is fixed
-            raise NotImplementedError("HTTP connector requires aiohttp dependency")
-        except Exception as e:
-            logger.error("Failed to get Web API schema", error=str(e))
-            return {"error": str(e)}
-    
-    def _infer_json_schema(self, data: Any) -> Dict[str, Any]:
-        """Infer schema from JSON data structure."""
-        if isinstance(data, list) and len(data) > 0:
-            sample = data[0]
-            return self._analyze_json_object(sample)
-        elif isinstance(data, dict):
-            return self._analyze_json_object(data)
-        else:
-            return {"type": "unknown", "sample": str(data)[:100]}
-    
-    def _analyze_json_object(self, obj: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze JSON object structure."""
-        schema = {"type": "object", "properties": {}}
-        for key, value in obj.items():
-            if isinstance(value, str):
-                schema["properties"][key] = {"type": "string"}
-            elif isinstance(value, int):
-                schema["properties"][key] = {"type": "integer"}
-            elif isinstance(value, float):
-                schema["properties"][key] = {"type": "number"}
-            elif isinstance(value, bool):
-                schema["properties"][key] = {"type": "boolean"}
-            elif isinstance(value, list):
-                schema["properties"][key] = {"type": "array"}
-            elif isinstance(value, dict):
-                schema["properties"][key] = {"type": "object"}
-            else:
-                schema["properties"][key] = {"type": "unknown"}
-        return schema
-
+# ============================================================================
+# FILE CONNECTORS (Phase 1)
+# ============================================================================
 
 class CSVFileConnector(DataSourceConnector):
-    """CSV file connector."""
-    
+    """CSV file connector with pandas-based parsing."""
+
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self.file_path = config.get('file_path', '')
         self.delimiter = config.get('delimiter', ',')
         self.encoding = config.get('encoding', 'utf-8')
         self.has_header = config.get('has_header', True)
-    
+
     async def test_connection(self) -> Tuple[bool, str]:
+        """Test if file is accessible and readable."""
         try:
             async with aiofiles.open(self.file_path, mode='r', encoding=self.encoding) as f:
                 first_line = await f.readline()
@@ -716,18 +399,19 @@ class CSVFileConnector(DataSourceConnector):
                     return False, "File is empty"
         except Exception as e:
             return False, f"Cannot access file: {str(e)}"
-    
+
     async def get_schema(self) -> Dict[str, Any]:
+        """Infer schema from CSV file."""
         try:
-            # Read first few rows to infer schema
+            # Read first 1000 rows to infer schema
             df = pd.read_csv(self.file_path, delimiter=self.delimiter, encoding=self.encoding, nrows=1000)
-            
+
             schema = {
                 "type": "table",
-                "name": self.file_path.split('/')[-1],
+                "name": Path(self.file_path).name,
                 "columns": []
             }
-            
+
             for column in df.columns:
                 dtype = str(df[column].dtype)
                 schema["columns"].append({
@@ -735,14 +419,14 @@ class CSVFileConnector(DataSourceConnector):
                     "type": self._pandas_to_sql_type(dtype),
                     "nullable": df[column].isnull().any()
                 })
-            
+
             return schema
         except Exception as e:
             logger.error("Failed to get CSV schema", error=str(e))
             return {"error": str(e)}
-    
+
     def _pandas_to_sql_type(self, pandas_type: str) -> str:
-        """Convert pandas dtype to SQL type."""
+        """Convert pandas dtype to SQL-like type."""
         if 'int' in pandas_type:
             return 'integer'
         elif 'float' in pandas_type:
@@ -755,9 +439,8 @@ class CSVFileConnector(DataSourceConnector):
             return 'string'
 
     async def execute_query(self, query: str, limit: int = 1000) -> Dict[str, Any]:
-        """Execute a query on CSV data (limited functionality)."""
+        """Execute a query on CSV data (limited to returning rows with limit)."""
         try:
-            # For CSV, we can only return all data with limit
             df = pd.read_csv(self.file_path, delimiter=self.delimiter, encoding=self.encoding, nrows=limit)
 
             data = df.to_dict('records')
@@ -783,35 +466,36 @@ class CSVFileConnector(DataSourceConnector):
 
 
 class ExcelConnector(DataSourceConnector):
-    """Excel file connector."""
-    
+    """Excel workbook connector with multi-sheet support."""
+
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self.file_path = config.get('file_path', '')
         self.sheet_name = config.get('sheet_name', 0)  # First sheet by default
-    
+
     async def test_connection(self) -> Tuple[bool, str]:
+        """Test if Excel file is accessible."""
         try:
             df = pd.read_excel(self.file_path, sheet_name=self.sheet_name, nrows=1)
             return True, "Excel file accessible"
         except Exception as e:
             return False, f"Cannot access Excel file: {str(e)}"
-    
+
     async def get_schema(self) -> Dict[str, Any]:
+        """Get schema for all sheets in the workbook."""
         try:
-            # Get all sheet names
             excel_file = pd.ExcelFile(self.file_path)
             sheets_info = []
-            
+
             for sheet_name in excel_file.sheet_names:
                 df = pd.read_excel(self.file_path, sheet_name=sheet_name, nrows=100)
-                
+
                 sheet_schema = {
                     "name": sheet_name,
                     "type": "sheet",
                     "columns": []
                 }
-                
+
                 for column in df.columns:
                     dtype = str(df[column].dtype)
                     sheet_schema["columns"].append({
@@ -819,16 +503,16 @@ class ExcelConnector(DataSourceConnector):
                         "type": self._pandas_to_sql_type(dtype),
                         "nullable": df[column].isnull().any()
                     })
-                
+
                 sheets_info.append(sheet_schema)
-            
+
             return {"type": "workbook", "sheets": sheets_info}
         except Exception as e:
             logger.error("Failed to get Excel schema", error=str(e))
             return {"error": str(e)}
-    
+
     def _pandas_to_sql_type(self, pandas_type: str) -> str:
-        """Convert pandas dtype to SQL type."""
+        """Convert pandas dtype to SQL-like type."""
         if 'int' in pandas_type:
             return 'integer'
         elif 'float' in pandas_type:
@@ -841,7 +525,7 @@ class ExcelConnector(DataSourceConnector):
             return 'string'
 
     async def execute_query(self, query: str, limit: int = 1000) -> Dict[str, Any]:
-        """Execute a query on Excel data (limited functionality)."""
+        """Execute a query on Excel data."""
         try:
             df = pd.read_excel(self.file_path, sheet_name=self.sheet_name, nrows=limit)
 
@@ -867,135 +551,381 @@ class ExcelConnector(DataSourceConnector):
             return []
 
 
+class JSONConnector(DataSourceConnector):
+    """JSON file connector with schema inference for flat and nested JSON."""
+
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config)
+        self.file_path = config.get('file_path', '')
+        self.encoding = config.get('encoding', 'utf-8')
+        self.json_path = config.get('json_path', None)  # Optional: JSONPath for nested data
+
+    async def test_connection(self) -> Tuple[bool, str]:
+        """Test if JSON file is accessible and valid."""
+        try:
+            async with aiofiles.open(self.file_path, mode='r', encoding=self.encoding) as f:
+                content = await f.read()
+                json.loads(content)  # Validate JSON
+            return True, "JSON file accessible and valid"
+        except json.JSONDecodeError as e:
+            return False, f"Invalid JSON format: {str(e)}"
+        except Exception as e:
+            return False, f"Cannot access file: {str(e)}"
+
+    async def get_schema(self) -> Dict[str, Any]:
+        """Infer schema from JSON data structure."""
+        try:
+            async with aiofiles.open(self.file_path, mode='r', encoding=self.encoding) as f:
+                content = await f.read()
+                data = json.loads(content)
+
+            # Handle different JSON structures
+            if isinstance(data, list) and len(data) > 0:
+                # Array of objects (most common for tabular data)
+                sample = data[0]
+                schema = self._analyze_json_object(sample)
+                schema["type"] = "array_of_objects"
+                schema["row_count"] = len(data)
+            elif isinstance(data, dict):
+                # Single object or nested structure
+                schema = self._analyze_json_object(data)
+                schema["type"] = "object"
+            else:
+                schema = {"type": "unknown", "error": "Unsupported JSON structure"}
+
+            return schema
+        except Exception as e:
+            logger.error("Failed to get JSON schema", error=str(e))
+            return {"error": str(e)}
+
+    def _analyze_json_object(self, obj: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze JSON object structure and infer column types."""
+        schema = {"type": "object", "columns": []}
+
+        for key, value in obj.items():
+            column_info = {"name": key}
+
+            if isinstance(value, str):
+                column_info["type"] = "string"
+            elif isinstance(value, bool):
+                column_info["type"] = "boolean"
+            elif isinstance(value, int):
+                column_info["type"] = "integer"
+            elif isinstance(value, float):
+                column_info["type"] = "number"
+            elif isinstance(value, list):
+                column_info["type"] = "array"
+                if len(value) > 0:
+                    column_info["item_type"] = type(value[0]).__name__
+            elif isinstance(value, dict):
+                column_info["type"] = "object"
+                column_info["nested"] = True
+            elif value is None:
+                column_info["type"] = "null"
+            else:
+                column_info["type"] = "unknown"
+
+            schema["columns"].append(column_info)
+
+        return schema
+
+    async def execute_query(self, query: str, limit: int = 1000) -> Dict[str, Any]:
+        """Load JSON data (no query support, returns all data up to limit)."""
+        try:
+            async with aiofiles.open(self.file_path, mode='r', encoding=self.encoding) as f:
+                content = await f.read()
+                data = json.loads(content)
+
+            # Convert to list of dicts if needed
+            if isinstance(data, list):
+                records = data[:limit]
+            elif isinstance(data, dict):
+                # Flatten single object into a list with one item
+                records = [data]
+            else:
+                records = []
+
+            columns = list(records[0].keys()) if records else []
+
+            return {
+                "data": records,
+                "columns": columns,
+                "row_count": len(records)
+            }
+        except Exception as e:
+            logger.error("Failed to query JSON data", error=str(e))
+            return {"error": str(e), "data": [], "columns": []}
+
+    async def get_sample_data(self, table_name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get sample data from JSON file."""
+        try:
+            result = await self.execute_query("", limit)
+            return result.get("data", [])
+        except Exception as e:
+            logger.error("Failed to get JSON sample data", error=str(e))
+            return []
+
+
+class PDFConnector(DataSourceConnector):
+    """PDF file connector with table extraction support.
+
+    Note: This connector extracts tabular data from PDFs. It works best with
+    simple, well-structured tables. Complex layouts may require preprocessing.
+    """
+
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config)
+        self.file_path = config.get('file_path', '')
+        self.page_number = config.get('page_number', 0)  # First page by default (0-indexed)
+        self.table_settings = config.get('table_settings', {})
+
+    async def test_connection(self) -> Tuple[bool, str]:
+        """Test if PDF file is accessible and contains tables."""
+        try:
+            import pdfplumber
+
+            with pdfplumber.open(self.file_path) as pdf:
+                if len(pdf.pages) == 0:
+                    return False, "PDF file is empty"
+
+                # Try to extract tables from first page
+                first_page = pdf.pages[0]
+                tables = first_page.extract_tables()
+
+                if not tables:
+                    return True, f"PDF accessible (no tables found on page 1, total pages: {len(pdf.pages)})"
+
+                return True, f"PDF accessible with {len(tables)} table(s) on page 1"
+        except ImportError:
+            return False, "pdfplumber library not installed (pip install pdfplumber)"
+        except Exception as e:
+            return False, f"Cannot access PDF file: {str(e)}"
+
+    async def get_schema(self) -> Dict[str, Any]:
+        """Extract schema from PDF tables."""
+        try:
+            import pdfplumber
+
+            with pdfplumber.open(self.file_path) as pdf:
+                if self.page_number >= len(pdf.pages):
+                    return {"error": f"Page {self.page_number} not found (PDF has {len(pdf.pages)} pages)"}
+
+                page = pdf.pages[self.page_number]
+                tables = page.extract_tables(self.table_settings)
+
+                if not tables:
+                    return {
+                        "type": "pdf",
+                        "pages": len(pdf.pages),
+                        "tables": [],
+                        "note": "No tables found on specified page"
+                    }
+
+                schema_tables = []
+                for idx, table in enumerate(tables):
+                    if not table or len(table) < 2:
+                        continue
+
+                    # First row is typically header
+                    headers = table[0]
+                    sample_row = table[1] if len(table) > 1 else []
+
+                    table_schema = {
+                        "name": f"Table_{idx + 1}_Page_{self.page_number + 1}",
+                        "type": "table",
+                        "columns": []
+                    }
+
+                    for col_idx, header in enumerate(headers):
+                        column_name = header if header else f"Column_{col_idx + 1}"
+                        # Infer type from sample data
+                        sample_value = sample_row[col_idx] if col_idx < len(sample_row) else None
+                        inferred_type = self._infer_type(sample_value)
+
+                        table_schema["columns"].append({
+                            "name": column_name,
+                            "type": inferred_type,
+                            "nullable": True
+                        })
+
+                    schema_tables.append(table_schema)
+
+                return {
+                    "type": "pdf",
+                    "pages": len(pdf.pages),
+                    "tables": schema_tables
+                }
+        except ImportError:
+            return {"error": "pdfplumber library not installed"}
+        except Exception as e:
+            logger.error("Failed to get PDF schema", error=str(e))
+            return {"error": str(e)}
+
+    def _infer_type(self, value: Any) -> str:
+        """Infer data type from sample value."""
+        if value is None or value == '':
+            return 'string'
+
+        try:
+            # Try to convert to number
+            float(value)
+            if '.' in str(value):
+                return 'number'
+            return 'integer'
+        except (ValueError, TypeError):
+            pass
+
+        return 'string'
+
+    async def execute_query(self, query: str, limit: int = 1000) -> Dict[str, Any]:
+        """Extract data from PDF tables."""
+        try:
+            import pdfplumber
+
+            with pdfplumber.open(self.file_path) as pdf:
+                page = pdf.pages[self.page_number]
+                tables = page.extract_tables(self.table_settings)
+
+                if not tables:
+                    return {"data": [], "columns": [], "row_count": 0}
+
+                # Use first table found
+                table = tables[0]
+                if len(table) < 2:
+                    return {"data": [], "columns": [], "row_count": 0}
+
+                headers = table[0]
+                rows = table[1:limit+1]
+
+                # Convert to list of dicts
+                data = []
+                for row in rows:
+                    row_dict = {}
+                    for idx, header in enumerate(headers):
+                        column_name = header if header else f"Column_{idx + 1}"
+                        value = row[idx] if idx < len(row) else None
+                        row_dict[column_name] = value
+                    data.append(row_dict)
+
+                return {
+                    "data": data,
+                    "columns": headers,
+                    "row_count": len(data)
+                }
+        except ImportError:
+            return {"error": "pdfplumber library not installed", "data": [], "columns": []}
+        except Exception as e:
+            logger.error("Failed to query PDF data", error=str(e))
+            return {"error": str(e), "data": [], "columns": []}
+
+    async def get_sample_data(self, table_name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get sample data from PDF table."""
+        try:
+            result = await self.execute_query("", limit)
+            return result.get("data", [])
+        except Exception as e:
+            logger.error("Failed to get PDF sample data", error=str(e))
+            return []
+
+
+# ============================================================================
+# FACTORY AND MANAGER CLASSES
+# ============================================================================
+
 class DataConnectorFactory:
-    """Factory class for creating data source connectors."""
+    """Factory class for creating Phase 1 data source connectors."""
 
     _connectors = {
-        # Database connectors
-        ConnectorType.SQL_SERVER: SQLServerConnector,
+        # Database connectors (Phase 1)
         ConnectorType.POSTGRESQL: PostgreSQLConnector,
         ConnectorType.MYSQL: MySQLConnector,
         ConnectorType.MARIADB: MariaDBConnector,
-        ConnectorType.TERADATA: TeradataConnector,
 
-        # Cloud & Analytics connectors
-        ConnectorType.DATABRICKS: DatabricksConnector,
-        ConnectorType.AZURE_DATABRICKS: DatabricksConnector,
-
-        # File connectors
+        # File connectors (Phase 1)
         ConnectorType.CSV: CSVFileConnector,
-        ConnectorType.TEXT_CSV: CSVFileConnector,
         ConnectorType.EXCEL: ExcelConnector,
-
-        # Web & API connectors
-        ConnectorType.WEB: WebAPIConnector,
-        ConnectorType.REST_API: WebAPIConnector,
-        ConnectorType.ODATA: ODataConnector,
-
-        # Generic connectors
-        ConnectorType.SPARK: SparkConnector,
-        ConnectorType.ODBC: ODBCConnector,
-        ConnectorType.JDBC: JDBCConnector,
+        ConnectorType.JSON: JSONConnector,
+        ConnectorType.PDF: PDFConnector,
     }
-    
+
     @classmethod
     def create_connector(cls, connector_type: ConnectorType, config: Dict[str, Any]) -> DataSourceConnector:
         """Create a connector instance based on type and configuration."""
         connector_class = cls._connectors.get(connector_type)
         if not connector_class:
-            raise ValueError(f"Unsupported connector type: {connector_type}")
-        
+            raise ValueError(f"Unsupported connector type: {connector_type}. Phase 1 supports: {list(cls._connectors.keys())}")
+
         return connector_class(config)
-    
+
     @classmethod
     def get_supported_types(cls) -> List[ConnectorType]:
-        """Get list of supported connector types."""
+        """Get list of supported connector types for Phase 1."""
         return list(cls._connectors.keys())
-    
+
     @classmethod
     def get_connector_requirements(cls, connector_type: ConnectorType) -> Dict[str, Any]:
         """Get configuration requirements for a connector type."""
         requirements = {
-            ConnectorType.SQL_SERVER: {
-                "required": ["server", "database"],
-                "optional": ["username", "password", "port", "trusted_connection"],
-                "description": "Microsoft SQL Server database connection"
-            },
+            # Database connectors
             ConnectorType.POSTGRESQL: {
                 "required": ["host", "database", "username", "password"],
                 "optional": ["port"],
+                "defaults": {"port": 5432},
                 "description": "PostgreSQL database connection"
             },
             ConnectorType.MYSQL: {
                 "required": ["host", "database", "username", "password"],
                 "optional": ["port"],
+                "defaults": {"port": 3306},
                 "description": "MySQL database connection"
             },
             ConnectorType.MARIADB: {
                 "required": ["host", "database", "username", "password"],
                 "optional": ["port"],
-                "description": "MariaDB database connection"
+                "defaults": {"port": 3306},
+                "description": "MariaDB database connection (MySQL compatible)"
             },
-            ConnectorType.TERADATA: {
-                "required": ["host", "database", "username", "password"],
-                "optional": ["port"],
-                "description": "Teradata database connection"
-            },
-            ConnectorType.DATABRICKS: {
-                "required": ["server_hostname", "http_path", "access_token"],
-                "optional": ["catalog", "schema"],
-                "description": "Databricks SQL Warehouse connection"
-            },
-            ConnectorType.SPARK: {
-                "required": ["host", "database"],
-                "optional": ["port", "username", "password"],
-                "description": "Apache Spark (Thrift Server) connection"
-            },
-            ConnectorType.ODATA: {
-                "required": ["url"],
-                "optional": ["version", "auth_type", "username", "password", "headers"],
-                "description": "OData feed connection"
-            },
-            ConnectorType.ODBC: {
-                "required": [],
-                "optional": ["connection_string", "dsn", "driver", "server", "database"],
-                "description": "ODBC generic connection"
-            },
-            ConnectorType.JDBC: {
-                "required": ["jdbc_url", "driver_class"],
-                "optional": ["username", "password"],
-                "description": "JDBC generic connection"
-            },
+
+            # File connectors
             ConnectorType.CSV: {
                 "required": ["file_path"],
                 "optional": ["delimiter", "encoding", "has_header"],
+                "defaults": {"delimiter": ",", "encoding": "utf-8", "has_header": True},
                 "description": "CSV file connection"
             },
             ConnectorType.EXCEL: {
                 "required": ["file_path"],
                 "optional": ["sheet_name"],
-                "description": "Excel workbook connection"
+                "defaults": {"sheet_name": 0},
+                "description": "Excel workbook connection (.xlsx, .xls)"
             },
-            ConnectorType.WEB: {
-                "required": ["url"],
-                "optional": ["headers", "auth_type", "api_key", "api_key_header"],
-                "description": "Web API/REST endpoint connection"
-            }
+            ConnectorType.JSON: {
+                "required": ["file_path"],
+                "optional": ["encoding", "json_path"],
+                "defaults": {"encoding": "utf-8"},
+                "description": "JSON file connection (supports flat and nested structures)"
+            },
+            ConnectorType.PDF: {
+                "required": ["file_path"],
+                "optional": ["page_number", "table_settings"],
+                "defaults": {"page_number": 0},
+                "description": "PDF file table extraction (requires pdfplumber)"
+            },
         }
-        
+
         return requirements.get(connector_type, {})
 
 
 class DataSourceManager:
-    """Manager class for handling data source operations."""
-    
+    """Manager class for handling Phase 1 data source operations."""
+
     @staticmethod
     async def test_data_source(connector_type: ConnectorType, config: Dict[str, Any]) -> Dict[str, Any]:
         """Test a data source connection."""
         try:
             connector = DataConnectorFactory.create_connector(connector_type, config)
             is_connected, message = await connector.test_connection()
-            
+
             return {
                 "success": is_connected,
                 "message": message,
@@ -1010,14 +940,14 @@ class DataSourceManager:
                 "connector_type": connector_type.value,
                 "timestamp": datetime.utcnow().isoformat()
             }
-    
+
     @staticmethod
     async def get_data_source_schema(connector_type: ConnectorType, config: Dict[str, Any]) -> Dict[str, Any]:
         """Get schema information from a data source."""
         try:
             connector = DataConnectorFactory.create_connector(connector_type, config)
             schema = await connector.get_schema()
-            
+
             return {
                 "success": True,
                 "schema": schema,

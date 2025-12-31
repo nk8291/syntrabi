@@ -61,31 +61,25 @@ class DatasetService {
   }
 
   /**
-     * Normalize connector type: convert to lowercase and replace hyphens with underscores
-     * to match backend enum format
-     */
+   * Normalize connector type: convert to lowercase and replace hyphens with underscores
+   * to match backend enum format (Phase 1 connectors only)
+   */
   private normalizeConnectorType(connectorType: string): string {
     // Convert to lowercase and replace hyphens with underscores
     const normalized = connectorType.toLowerCase().replace(/-/g, '_')
 
-    // List of all supported connector types (matching backend ConnectorType enum)
+    // Phase 1 supported connector types (matching backend ConnectorType enum)
     const allowed = [
-      // File-based sources
-      'csv', 'excel', 'json', 'xml', 'text_csv', 'parquet', 'pdf',
-      // Database sources
-      'sql_server', 'postgresql', 'mysql', 'oracle', 'azure_sql', 'teradata', 'mariadb',
-      // Cloud and Analytics
-      'bigquery', 'google_bigquery', 'snowflake', 'mongodb', 'databricks', 'azure_databricks', 'amazon_redshift',
-      // Connectivity
-      'web', 'rest_api', 'odata', 'spark', 'odbc', 'jdbc', 'ole_db',
-      // Collaboration
-      'google_sheets', 'sharepoint_folder', 'folder',
-      // Special
-      'blank_query', 'fhir'
+      // File-based sources (Phase 1)
+      'csv', 'excel', 'json', 'pdf',
+      // Database sources (Phase 1)
+      'postgresql', 'mysql', 'mariadb'
     ]
 
     if (!allowed.includes(normalized)) {
-      throw new Error(`Invalid connector type: ${connectorType}. Normalized to: ${normalized}`)
+      throw new Error(
+        `Invalid connector type: ${connectorType}. Phase 1 supports only: ${allowed.join(', ')}`
+      )
     }
     return normalized
   }
@@ -206,6 +200,40 @@ class DatasetService {
   async getDatasetPreview(workspaceId: string, datasetId: string): Promise<DatasetQueryResult> {
     this.normalizeWorkspaceId(workspaceId)
     return this.queryDataset(datasetId, { limit: 100 })
+  }
+
+  /**
+   * Test database connection (Phase 1)
+   */
+  async testConnection(connectorType: string, connectionConfig: any): Promise<{ success: boolean; message: string }> {
+    const normalizedConnector = this.normalizeConnectorType(connectorType)
+
+    try {
+      // Backend expects POST /api/datasets/connectors/test with connector_type and config
+      const response = await apiClient.post('/api/datasets/connectors/test', {
+        connector_type: normalizedConnector,
+        config: connectionConfig  // Note: backend expects 'config', not 'connection_config'
+      })
+      return response.data
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.detail || error.message || 'Connection test failed'
+      }
+    }
+  }
+
+  /**
+   * Get database schema (tables and columns) after successful connection test
+   */
+  async getDatabaseSchema(connectorType: string, connectionConfig: any): Promise<any> {
+    const normalizedConnector = this.normalizeConnectorType(connectorType)
+
+    const response = await apiClient.post('/api/datasets/connectors/schema', {
+      connector_type: normalizedConnector,
+      config: connectionConfig
+    })
+    return response.data
   }
 }
 

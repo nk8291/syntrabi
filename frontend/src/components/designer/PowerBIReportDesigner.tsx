@@ -120,7 +120,9 @@ const PowerBIReportDesigner = forwardRef<any, PowerBIReportDesignerProps>(({
     setDesignerState(prev => ({
       ...prev,
       selectedVisual: visual,
-      activeRightPanel: 'properties'
+      // Only switch to properties if no right panel is currently open
+      // This prevents auto-minimizing the visualizations panel
+      activeRightPanel: prev.activeRightPanel || (visual ? 'properties' : null)
     }))
   }, [])
 

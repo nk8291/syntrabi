@@ -52,28 +52,38 @@ class DatasetService:
             if connector_type == ConnectorType.CSV and file_content:
                 await DatasetService._process_csv_data(session, dataset, file_content)
             elif connector_type in [
+                # Phase 1 database connectors
                 ConnectorType.POSTGRESQL,
                 ConnectorType.MYSQL,
-                ConnectorType.SQL_SERVER,
-                ConnectorType.MARIADB,
-                ConnectorType.BIGQUERY,
-                ConnectorType.SNOWFLAKE,
-                ConnectorType.ORACLE,
-                ConnectorType.DATABRICKS,
-                ConnectorType.AZURE_DATABRICKS
+                ConnectorType.MARIADB
             ]:
                 # For database connections, fetch real schema immediately
                 # This provides a Power BI-like experience where tables are visible after connection
                 await DatasetService._create_sample_schema(session, dataset, connector_type)
+            elif connector_type in [
+                # Phase 1 file connectors (non-CSV)
+                ConnectorType.EXCEL,
+                ConnectorType.JSON,
+                ConnectorType.PDF
+            ]:
+                # For file connectors, mark as ready with placeholder
+                # Actual processing will happen when file is uploaded
+                dataset.status = DatasetStatus.READY
+                dataset.schema_json = {
+                    "message": "File processing complete",
+                    "columns": []
+                }
+                await session.commit()
+                await session.refresh(dataset)
             else:
-                # For other connector types, mark as ready with placeholder
+                # Unknown connector type
                 dataset.status = DatasetStatus.READY
                 dataset.schema_json = {
                     "tables": [],
                     "message": "Schema will be loaded when you access the dataset"
                 }
                 await session.commit()
-                await session.refresh(dataset)  # Refresh to avoid lazy loading issues
+                await session.refresh(dataset)
 
             return dataset
 
@@ -144,8 +154,8 @@ class DatasetService:
             dataset.schema_json = schema_json
             dataset.row_count = row_count
             dataset.file_size = len(file_content)
-            # Store actual CSV data (up to MAX_STORED_ROWS) as sample for preview
-            dataset.sample_rows = sample_rows[:10]
+            # Store actual CSV data (up to 100 rows) as sample for preview and visualizations
+            dataset.sample_rows = sample_rows[:100]
             dataset.status = DatasetStatus.READY
 
             await session.commit()
@@ -261,7 +271,7 @@ class DatasetService:
                 logger.warning(f"Failed to fetch real schema, falling back to sample: {str(e)}")
                 # Fall back to sample schema if real fetch fails
 
-            # Fallback: Create sample schema for database connections
+            # Fallback: Create sample schema for Phase 1 database connections
             sample_schemas = {
                 ConnectorType.POSTGRESQL: {
                     "tables": [{
@@ -307,20 +317,20 @@ class DatasetService:
                         "rowCount": 2500
                     }]
                 },
-                ConnectorType.BIGQUERY: {
+                ConnectorType.MARIADB: {
                     "tables": [{
-                        "name": "analytics_events",
-                        "displayName": "Analytics Events",
+                        "name": "customers",
+                        "displayName": "Customers",
                         "columns": [
-                            {"name": "event_timestamp", "type": "datetime", "nullable": False, "description": "Event timestamp"},
-                            {"name": "user_id", "type": "string", "nullable": False, "description": "User ID"},
-                            {"name": "session_id", "type": "string", "nullable": False, "description": "Session ID"},
-                            {"name": "event_name", "type": "string", "nullable": False, "description": "Event name"},
-                            {"name": "event_value", "type": "decimal", "nullable": True, "description": "Event value"},
-                            {"name": "user_properties", "type": "string", "nullable": True, "description": "User properties JSON"},
-                            {"name": "device_category", "type": "string", "nullable": True, "description": "Device category"}
+                            {"name": "customer_id", "type": "integer", "nullable": False, "description": "Customer ID"},
+                            {"name": "company_name", "type": "string", "nullable": False, "description": "Company name"},
+                            {"name": "contact_name", "type": "string", "nullable": True, "description": "Contact name"},
+                            {"name": "email", "type": "string", "nullable": False, "description": "Email address"},
+                            {"name": "phone", "type": "string", "nullable": True, "description": "Phone number"},
+                            {"name": "country", "type": "string", "nullable": True, "description": "Country"},
+                            {"name": "registered_date", "type": "date", "nullable": False, "description": "Registration date"}
                         ],
-                        "rowCount": 1200000
+                        "rowCount": 8500
                     }]
                 }
             }
@@ -603,21 +613,48 @@ class DatasetService:
                 raise ValueError(f"Dataset is in error state: {dataset.error_message or 'Unknown error'}")
 
             # For CSV files, use the actual sample data stored
-            if dataset.connector_type in [ConnectorType.CSV, ConnectorType.TEXT_CSV]:
+            if dataset.connector_type == ConnectorType.CSV:
                 if dataset.sample_rows and len(dataset.sample_rows) > 0:
-                    # Use actual CSV data from sample_rows
-                    limit = query_params.get("limit", 100)
-                    data = dataset.sample_rows[:limit]
+                    # Get column names from schema
+                    if not dataset.schema_json or not dataset.schema_json.get("tables"):
+                        raise ValueError("CSV dataset has no schema information")
 
-                    # Get columns from schema or first row
-                    columns = []
-                    if dataset.schema_json and dataset.schema_json.get("tables"):
-                        columns = [
-                            {"name": col["name"], "type": col["type"]}
-                            for col in dataset.schema_json["tables"][0]["columns"]
-                        ]
-                    elif data and len(data) > 0:
-                        columns = [{"name": col, "type": "string"} for col in data[0].keys()]
+                    schema_columns = dataset.schema_json["tables"][0]["columns"]
+                    column_names = [col["name"] for col in schema_columns]
+
+                    # Convert list of lists to list of dictionaries
+                    limit = query_params.get("limit", 100)
+                    raw_rows = dataset.sample_rows[:limit]
+
+                    data = []
+                    for row in raw_rows:
+                        # Create dictionary with column names as keys
+                        row_dict = {}
+                        for i, col_name in enumerate(column_names):
+                            # Get value from row, or empty string if index out of range
+                            value = row[i] if i < len(row) else ""
+
+                            # Convert to appropriate type based on schema
+                            col_type = schema_columns[i]["type"]
+                            if col_type in ["integer", "int"] and value:
+                                try:
+                                    row_dict[col_name] = int(value)
+                                except ValueError:
+                                    row_dict[col_name] = value
+                            elif col_type in ["decimal", "float", "number"] and value:
+                                try:
+                                    row_dict[col_name] = float(value)
+                                except ValueError:
+                                    row_dict[col_name] = value
+                            else:
+                                row_dict[col_name] = value
+
+                        data.append(row_dict)
+
+                    columns = [
+                        {"name": col["name"], "type": col["type"]}
+                        for col in schema_columns
+                    ]
 
                     execution_time = time.time() - start_time
                     return {
@@ -629,12 +666,11 @@ class DatasetService:
                 else:
                     raise ValueError("No data available for CSV dataset. The CSV may not have been processed correctly.")
 
-            # For database connectors, fetch schema if not already cached
+            # For Phase 1 database connectors, fetch schema if not already cached
             if dataset.connector_type in [
                 ConnectorType.POSTGRESQL,
                 ConnectorType.MYSQL,
-                ConnectorType.BIGQUERY,
-                ConnectorType.SNOWFLAKE
+                ConnectorType.MARIADB
             ]:
                 # Fetch and cache schema on first access (will raise if fails)
                 await DatasetService.fetch_and_cache_schema(session, dataset)

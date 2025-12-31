@@ -1,13 +1,14 @@
 /**
- * Database Connection Modal Component
+ * Database Connection Modal Component - Phase 1
  * Modal for configuring database connections
+ * Phase 1 Databases: PostgreSQL, MySQL, MariaDB
  */
 
 import React, { useState } from 'react'
-import { 
-  XMarkIcon, 
-  CircleStackIcon, 
-  EyeIcon, 
+import {
+  XMarkIcon,
+  CircleStackIcon,
+  EyeIcon,
   EyeSlashIcon,
   CheckCircleIcon,
   ExclamationCircleIcon,
@@ -47,6 +48,7 @@ interface ConnectionTemplate {
   connectionStringExample: string
 }
 
+// Phase 1 Database Templates
 const connectionTemplates: ConnectionTemplate[] = [
   {
     id: 'postgresql',
@@ -69,24 +71,14 @@ const connectionTemplates: ConnectionTemplate[] = [
     connectionStringExample: 'mysql://user:password@host:3306/database'
   },
   {
-    id: 'bigquery',
-    name: 'Google BigQuery',
-    description: 'Connect to Google BigQuery',
-    icon: '📊',
-    defaultPort: 443,
+    id: 'mariadb',
+    name: 'MariaDB',
+    description: 'Connect to MariaDB database (MySQL compatible)',
+    icon: '🦭',
+    defaultPort: 3306,
     supportsSSL: true,
     requiresSchema: false,
-    connectionStringExample: 'bigquery://project_id/dataset_id'
-  },
-  {
-    id: 'snowflake',
-    name: 'Snowflake',
-    description: 'Connect to Snowflake data warehouse',
-    icon: '❄️',
-    defaultPort: 443,
-    supportsSSL: true,
-    requiresSchema: true,
-    connectionStringExample: 'snowflake://user:password@account.region.snowflakecomputing.com/database/schema'
+    connectionStringExample: 'mysql://user:password@host:3306/database'
   }
 ]
 
@@ -148,28 +140,37 @@ const DatabaseConnectionModal: React.FC<DatabaseConnectionModalProps> = ({
     setConnectionError('')
 
     try {
-      // Simulate connection test - in real app this would call backend
-      await new Promise(resolve => setTimeout(resolve, 2000))
-      
-      // Mock success/failure based on config validity
-      if (config.host.includes('localhost') || config.host.includes('127.0.0.1')) {
-        throw new Error('Connection refused: Unable to connect to localhost')
+      const result = await datasetService.testConnection(selectedConnector.id, {
+        host: config.host,
+        port: config.port,
+        database: config.database,
+        username: config.username,
+        password: config.password,
+        schema: config.schema,
+        ssl_enabled: config.ssl
+      })
+
+      if (result.success) {
+        setConnectionStatus('success')
+        toast.success('Connection successful!')
+      } else {
+        setConnectionStatus('error')
+        setConnectionError(result.message || 'Connection test failed')
+        toast.error(result.message || 'Connection test failed')
       }
-      
-      setConnectionStatus('success')
-      toast.success('Connection test successful!')
     } catch (error: any) {
       setConnectionStatus('error')
-      setConnectionError(error.message || 'Connection test failed')
-      toast.error('Connection test failed')
+      const errorMessage = error.response?.data?.detail || error.message || 'Connection test failed'
+      setConnectionError(errorMessage)
+      toast.error(errorMessage)
     } finally {
       setIsTestingConnection(false)
     }
   }
 
-  const handleConnect = async () => {
-    if (!datasetName.trim()) {
-      toast.error('Please provide a dataset name')
+  const createConnection = async () => {
+    if (!config.host || !config.database || !config.username || !datasetName) {
+      toast.error('Please fill in all required fields')
       return
     }
 
@@ -179,6 +180,7 @@ const DatabaseConnectionModal: React.FC<DatabaseConnectionModalProps> = ({
     }
 
     setIsConnecting(true)
+
     try {
       const dataset = await datasetService.createDatabaseDataset(
         workspaceId,
@@ -190,25 +192,26 @@ const DatabaseConnectionModal: React.FC<DatabaseConnectionModalProps> = ({
           database: config.database,
           username: config.username,
           password: config.password,
-          schema: config.schema || undefined,
-          ssl: config.ssl,
+          schema: config.schema,
+          ssl_enabled: config.ssl,
           connection_timeout: config.connection_timeout,
           query_timeout: config.query_timeout
         }
       )
-      
-      toast.success('Database connection created successfully!')
+
+      toast.success(`Database connection "${datasetName}" created successfully!`)
       onSuccess(dataset)
-      onClose()
-      resetForm()
+      handleClose()
     } catch (error: any) {
-      toast.error(error.message || 'Failed to create database connection')
+      const errorMessage = error.response?.data?.detail || error.message || 'Failed to create database connection'
+      toast.error(errorMessage)
+      console.error('Failed to create database connection:', error)
     } finally {
       setIsConnecting(false)
     }
   }
 
-  const resetForm = () => {
+  const handleClose = () => {
     setSelectedConnector(connectionTemplates[0])
     setDatasetName('')
     setConfig({
@@ -222,331 +225,279 @@ const DatabaseConnectionModal: React.FC<DatabaseConnectionModalProps> = ({
       connection_timeout: 30,
       query_timeout: 300
     })
-    setShowPassword(false)
     setConnectionStatus('idle')
     setConnectionError('')
-  }
-
-  const handleClose = () => {
-    if (!isConnecting && !isTestingConnection) {
-      onClose()
-      resetForm()
-    }
+    setShowPassword(false)
+    onClose()
   }
 
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] mx-4 flex flex-col">
+    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+      <div className="relative top-10 mx-auto p-6 border w-full max-w-2xl shadow-lg rounded-lg bg-white">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b">
-          <div className="flex items-center space-x-3">
-            <div className="p-2 bg-green-100 rounded-lg">
-              <CircleStackIcon className="h-6 w-6 text-green-600" />
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">Database Connection</h2>
-              <p className="text-sm text-gray-500">Connect to your database to import data</p>
-            </div>
+        <div className="flex justify-between items-center mb-6">
+          <div className="flex items-center">
+            <CircleStackIcon className="w-6 h-6 text-blue-600 mr-2" />
+            <h2 className="text-2xl font-bold text-gray-900">Database Connection</h2>
           </div>
-          <button
-            onClick={handleClose}
-            disabled={isConnecting || isTestingConnection}
-            className="text-gray-400 hover:text-gray-600 p-2 rounded-lg hover:bg-gray-100 disabled:opacity-50"
-          >
-            <XMarkIcon className="h-6 w-6" />
+          <button onClick={handleClose} className="text-gray-400 hover:text-gray-600">
+            <XMarkIcon className="w-6 h-6" />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-auto">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6">
-            {/* Connector Selection */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-medium text-gray-900">Database Type</h3>
-              <div className="space-y-2">
-                {connectionTemplates.map((connector) => (
-                  <button
-                    key={connector.id}
-                    onClick={() => handleConnectorChange(connector)}
-                    disabled={isConnecting || isTestingConnection}
-                    className={`w-full p-3 border-2 rounded-lg text-left transition-all hover:shadow-sm disabled:opacity-50 ${
-                      selectedConnector.id === connector.id
-                        ? 'border-primary-500 bg-primary-50'
-                        : 'border-gray-200 hover:border-primary-300'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-3">
-                      <div className="text-2xl">{connector.icon}</div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-medium text-gray-900">{connector.name}</h4>
-                        <p className="text-xs text-gray-500 mt-1">{connector.description}</p>
-                      </div>
-                    </div>
-                  </button>
-                ))}
+        {/* Database Type Selection */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Database Type
+          </label>
+          <div className="grid grid-cols-3 gap-3">
+            {connectionTemplates.map((template) => (
+              <button
+                key={template.id}
+                onClick={() => handleConnectorChange(template)}
+                className={`p-4 border rounded-lg text-left transition ${
+                  selectedConnector.id === template.id
+                    ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div className="text-2xl mb-1">{template.icon}</div>
+                <div className="font-semibold text-sm">{template.name}</div>
+                <div className="text-xs text-gray-500 mt-1">{template.description}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Dataset Name */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Connection Name *
+          </label>
+          <input
+            type="text"
+            value={datasetName}
+            onChange={(e) => setDatasetName(e.target.value)}
+            placeholder={`${selectedConnector.name} Connection`}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
+        {/* Connection Details */}
+        <div className="space-y-4 mb-6">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Host *
+              </label>
+              <input
+                type="text"
+                value={config.host}
+                onChange={(e) => handleConfigChange('host', e.target.value)}
+                placeholder="localhost"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Port
+              </label>
+              <input
+                type="number"
+                value={config.port}
+                onChange={(e) => handleConfigChange('port', parseInt(e.target.value))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Database *
+            </label>
+            <input
+              type="text"
+              value={config.database}
+              onChange={(e) => handleConfigChange('database', e.target.value)}
+              placeholder="database_name"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {selectedConnector.requiresSchema && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Schema (optional for PostgreSQL)
+              </label>
+              <input
+                type="text"
+                value={config.schema}
+                onChange={(e) => handleConfigChange('schema', e.target.value)}
+                placeholder="public"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Username *
+              </label>
+              <input
+                type="text"
+                value={config.username}
+                onChange={(e) => handleConfigChange('username', e.target.value)}
+                placeholder="username"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Password *
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={config.password}
+                  onChange={(e) => handleConfigChange('password', e.target.value)}
+                  placeholder="password"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-2 top-2 text-gray-500 hover:text-gray-700"
+                >
+                  {showPassword ? (
+                    <EyeSlashIcon className="w-5 h-5" />
+                  ) : (
+                    <EyeIcon className="w-5 h-5" />
+                  )}
+                </button>
               </div>
             </div>
+          </div>
 
-            {/* Connection Configuration */}
-            <div className="lg:col-span-2 space-y-6">
-              <div>
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Connection Details</h3>
-                <div className="space-y-4">
-                  {/* Dataset Name */}
+          {/* Advanced Options */}
+          <details className="border border-gray-200 rounded-md p-3">
+            <summary className="cursor-pointer font-medium text-sm text-gray-700">
+              Advanced Options
+            </summary>
+            <div className="mt-3 space-y-3">
+              {selectedConnector.supportsSSL && (
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="ssl"
+                    checked={config.ssl}
+                    onChange={(e) => handleConfigChange('ssl', e.target.checked)}
+                    className="mr-2"
+                  />
+                  <label htmlFor="ssl" className="text-sm text-gray-700">
+                    Enable SSL/TLS
+                  </label>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Connection Timeout (seconds)
+                  </label>
+                  <input
+                    type="number"
+                    value={config.connection_timeout}
+                    onChange={(e) => handleConfigChange('connection_timeout', parseInt(e.target.value))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Query Timeout (seconds)
+                  </label>
+                  <input
+                    type="number"
+                    value={config.query_timeout}
+                    onChange={(e) => handleConfigChange('query_timeout', parseInt(e.target.value))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Connection String Example */}
+              <div className="mt-3 p-3 bg-gray-50 rounded-md">
+                <div className="flex items-start">
+                  <InformationCircleIcon className="w-5 h-5 text-blue-500 mr-2 flex-shrink-0 mt-0.5" />
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Dataset Name *
-                    </label>
-                    <input
-                      type="text"
-                      value={datasetName}
-                      onChange={(e) => setDatasetName(e.target.value)}
-                      className="input w-full"
-                      placeholder="Enter dataset name"
-                      disabled={isConnecting || isTestingConnection}
-                    />
-                  </div>
-
-                  {/* Host and Port */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="md:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Host *
-                      </label>
-                      <input
-                        type="text"
-                        value={config.host}
-                        onChange={(e) => handleConfigChange('host', e.target.value)}
-                        className="input w-full"
-                        placeholder="database.example.com"
-                        disabled={isConnecting || isTestingConnection}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Port *
-                      </label>
-                      <input
-                        type="number"
-                        value={config.port}
-                        onChange={(e) => handleConfigChange('port', parseInt(e.target.value))}
-                        className="input w-full"
-                        disabled={isConnecting || isTestingConnection}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Database and Schema */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Database *
-                      </label>
-                      <input
-                        type="text"
-                        value={config.database}
-                        onChange={(e) => handleConfigChange('database', e.target.value)}
-                        className="input w-full"
-                        placeholder="database_name"
-                        disabled={isConnecting || isTestingConnection}
-                      />
-                    </div>
-                    {selectedConnector.requiresSchema && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Schema
-                        </label>
-                        <input
-                          type="text"
-                          value={config.schema || ''}
-                          onChange={(e) => handleConfigChange('schema', e.target.value)}
-                          className="input w-full"
-                          placeholder="public"
-                          disabled={isConnecting || isTestingConnection}
-                        />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Username and Password */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Username *
-                      </label>
-                      <input
-                        type="text"
-                        value={config.username}
-                        onChange={(e) => handleConfigChange('username', e.target.value)}
-                        className="input w-full"
-                        placeholder="username"
-                        disabled={isConnecting || isTestingConnection}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Password *
-                      </label>
-                      <div className="relative">
-                        <input
-                          type={showPassword ? 'text' : 'password'}
-                          value={config.password}
-                          onChange={(e) => handleConfigChange('password', e.target.value)}
-                          className="input w-full pr-10"
-                          placeholder="password"
-                          disabled={isConnecting || isTestingConnection}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                        >
-                          {showPassword ? (
-                            <EyeSlashIcon className="h-4 w-4 text-gray-400" />
-                          ) : (
-                            <EyeIcon className="h-4 w-4 text-gray-400" />
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Advanced Options */}
-                  <div className="border-t pt-4">
-                    <h4 className="text-sm font-medium text-gray-800 mb-3">Advanced Options</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {selectedConnector.supportsSSL && (
-                        <div className="flex items-center">
-                          <input
-                            type="checkbox"
-                            id="ssl"
-                            checked={config.ssl || false}
-                            onChange={(e) => handleConfigChange('ssl', e.target.checked)}
-                            disabled={isConnecting || isTestingConnection}
-                            className="checkbox"
-                          />
-                          <label htmlFor="ssl" className="ml-2 text-sm text-gray-700">
-                            Use SSL/TLS encryption
-                          </label>
-                        </div>
-                      )}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Connection Timeout (seconds)
-                        </label>
-                        <input
-                          type="number"
-                          value={config.connection_timeout}
-                          onChange={(e) => handleConfigChange('connection_timeout', parseInt(e.target.value))}
-                          className="input w-full"
-                          min="5"
-                          max="300"
-                          disabled={isConnecting || isTestingConnection}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Connection Status */}
-                  {connectionStatus !== 'idle' && (
-                    <div className={`p-3 rounded-lg border ${
-                      connectionStatus === 'success' 
-                        ? 'bg-green-50 border-green-200' 
-                        : 'bg-red-50 border-red-200'
-                    }`}>
-                      <div className="flex items-center space-x-2">
-                        {connectionStatus === 'success' ? (
-                          <CheckCircleIcon className="h-5 w-5 text-green-500" />
-                        ) : (
-                          <ExclamationCircleIcon className="h-5 w-5 text-red-500" />
-                        )}
-                        <div>
-                          <p className={`text-sm font-medium ${
-                            connectionStatus === 'success' ? 'text-green-800' : 'text-red-800'
-                          }`}>
-                            {connectionStatus === 'success' ? 'Connection Successful' : 'Connection Failed'}
-                          </p>
-                          {connectionError && (
-                            <p className="text-xs text-red-700 mt-1">{connectionError}</p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Connection String Example */}
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                    <div className="flex items-start space-x-2">
-                      <InformationCircleIcon className="h-5 w-5 text-blue-500 mt-0.5" />
-                      <div>
-                        <h4 className="text-sm font-medium text-blue-800">Connection Example</h4>
-                        <p className="text-xs text-blue-700 mt-1 font-mono">
-                          {selectedConnector.connectionStringExample}
-                        </p>
-                      </div>
-                    </div>
+                    <div className="text-xs font-medium text-gray-700 mb-1">Connection String Format:</div>
+                    <code className="text-xs text-gray-600 break-all">
+                      {selectedConnector.connectionStringExample}
+                    </code>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
+          </details>
         </div>
 
-        {/* Footer */}
-        <div className="border-t p-6 bg-gray-50">
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-gray-600">
-              Connect to {selectedConnector.name} database
-            </div>
-            
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={handleClose}
-                disabled={isConnecting || isTestingConnection}
-                className="btn btn-outline"
-              >
-                Cancel
-              </button>
-              
-              <button
-                onClick={testConnection}
-                disabled={isTestingConnection || !config.host || !config.database || !config.username}
-                className="btn btn-outline flex items-center space-x-2"
-              >
-                {isTestingConnection ? (
-                  <>
-                    <LoadingSpinner size="sm" />
-                    <span>Testing...</span>
-                  </>
-                ) : (
-                  <>
-                    <CircleStackIcon className="h-4 w-4" />
-                    <span>Test Connection</span>
-                  </>
-                )}
-              </button>
-              
-              <button
-                onClick={handleConnect}
-                disabled={isConnecting || connectionStatus !== 'success' || !datasetName.trim()}
-                className="btn btn-primary flex items-center space-x-2"
-              >
-                {isConnecting ? (
-                  <>
-                    <LoadingSpinner size="sm" />
-                    <span>Connecting...</span>
-                  </>
-                ) : (
-                  <>
-                    <CircleStackIcon className="h-4 w-4" />
-                    <span>Connect</span>
-                  </>
-                )}
-              </button>
+        {/* Connection Status */}
+        {connectionStatus === 'success' && (
+          <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-md flex items-center">
+            <CheckCircleIcon className="w-5 h-5 text-green-600 mr-2" />
+            <span className="text-sm text-green-800">Connection test successful!</span>
+          </div>
+        )}
+
+        {connectionStatus === 'error' && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md flex items-start">
+            <ExclamationCircleIcon className="w-5 h-5 text-red-600 mr-2 flex-shrink-0 mt-0.5" />
+            <div>
+              <div className="text-sm font-medium text-red-800">Connection test failed</div>
+              <div className="text-xs text-red-600 mt-1">{connectionError}</div>
             </div>
           </div>
+        )}
+
+        {/* Action Buttons */}
+        <div className="flex justify-between space-x-3">
+          <button
+            onClick={testConnection}
+            disabled={isTestingConnection || isConnecting}
+            className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 disabled:bg-gray-50 disabled:cursor-not-allowed flex items-center justify-center"
+          >
+            {isTestingConnection ? (
+              <>
+                <LoadingSpinner className="mr-2" />
+                Testing Connection...
+              </>
+            ) : (
+              'Test Connection'
+            )}
+          </button>
+          <button
+            onClick={handleClose}
+            className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+            disabled={isConnecting}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={createConnection}
+            disabled={isConnecting || connectionStatus !== 'success'}
+            className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center"
+          >
+            {isConnecting ? (
+              <>
+                <LoadingSpinner className="mr-2" />
+                Creating...
+              </>
+            ) : (
+              'Create Connection'
+            )}
+          </button>
         </div>
       </div>
     </div>

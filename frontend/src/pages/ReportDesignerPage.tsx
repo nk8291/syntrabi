@@ -5,7 +5,7 @@
 
 import React, { useState, useRef } from 'react'
 import { useParams } from 'react-router-dom'
-import PowerBIReportDesigner from '@/components/designer/PowerBIReportDesigner'
+import SimplifiedReportDesigner from '@/components/designer/SimplifiedReportDesigner'
 import { reportService } from '@/services/reportService'
 import toast from 'react-hot-toast'
 
@@ -79,17 +79,11 @@ const ReportDesignerPage: React.FC = () => {
   }
 
   return (
-    <div className="h-screen bg-gray-100 flex flex-col">
-      <PowerBIReportDesigner 
-        ref={reportDesignerRef}
-        workspaceId={actualWorkspaceId} 
-        reportId={actualReportId}
-        onSave={handleSave}
-        onPublish={handlePublish}
-        isSaving={isSaving}
-        isPublishing={isPublishing}
-      />
-    </div>
+    <SimplifiedReportDesigner
+      ref={reportDesignerRef}
+      workspaceId={actualWorkspaceId}
+      reportId={actualReportId}
+    />
   )
 }
 

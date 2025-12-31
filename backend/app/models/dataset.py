@@ -14,51 +14,17 @@ from app.core.database import Base
 
 
 class ConnectorType(enum.Enum):
-    """Supported data source connector types - Power BI compatible."""
-    # File-based sources
+    """Supported data source connector types - Phase 1 Implementation."""
+    # File-based sources (Phase 1)
     CSV = "csv"
     EXCEL = "excel"
     JSON = "json"
-    XML = "xml"
-    TEXT_CSV = "text_csv"
-    PARQUET = "parquet"
     PDF = "pdf"
-    
-    # Database sources
-    SQL_SERVER = "sql_server"
+
+    # Database sources (Phase 1)
     POSTGRESQL = "postgresql"
     MYSQL = "mysql"
-    ORACLE = "oracle"
-    AZURE_SQL = "azure_sql"
-    TERADATA = "teradata"
     MARIADB = "mariadb"
-    
-    # Cloud and Analytics
-    BIGQUERY = "bigquery"
-    GOOGLE_BIGQUERY = "google_bigquery"
-    SNOWFLAKE = "snowflake"
-    MONGODB = "mongodb"
-    DATABRICKS = "databricks"
-    AZURE_DATABRICKS = "azure_databricks"
-    AMAZON_REDSHIFT = "amazon_redshift"
-
-    # Connectivity
-    WEB = "web"
-    REST_API = "rest_api"
-    ODATA = "odata"
-    SPARK = "spark"
-    ODBC = "odbc"
-    JDBC = "jdbc"
-    OLE_DB = "ole_db"
-    
-    # Collaboration
-    GOOGLE_SHEETS = "google_sheets"
-    SHAREPOINT_FOLDER = "sharepoint_folder"
-    FOLDER = "folder"
-    
-    # Special
-    BLANK_QUERY = "blank_query"
-    FHIR = "fhir"
 
 
 class DatasetStatus(enum.Enum):

@@ -4,7 +4,7 @@
  */
 
 import React, { useRef, useState, useEffect, useCallback } from 'react'
-import { useDrag } from 'react-dnd'
+import { useDrag, useDrop } from 'react-dnd'
 import { 
   XMarkIcon, 
   Bars3Icon, 
@@ -39,6 +39,7 @@ interface VisualComponentProps {
   onResize: (size: { width: number; height: number }) => void
   onDelete: () => void
   onDuplicate?: (visual: Visual) => void
+  onUpdateVisual?: (visualId: string, updates: Partial<Visual>) => void
 }
 
 const VisualComponent: React.FC<VisualComponentProps> = ({
@@ -49,6 +50,7 @@ const VisualComponent: React.FC<VisualComponentProps> = ({
   onResize,
   onDelete,
   onDuplicate,
+  onUpdateVisual,
 }) => {
   const elementRef = useRef<HTMLDivElement>(null)
   const [isDragging, setIsDragging] = useState(false)
@@ -73,8 +75,32 @@ const VisualComponent: React.FC<VisualComponentProps> = ({
     }),
   })
 
-  // Attach drag handle to the header
+  // Accept field drops directly on this visual
+  const [{ isFieldOver }, drop] = useDrop({
+    accept: 'field',
+    drop: (item: any) => {
+      if (item.field && onUpdateVisual) {
+        // Add field to this visual's data binding
+        const updatedFields = [...(visual.data_binding.fields || []), item.field]
+        onUpdateVisual(visual.id, {
+          data_binding: {
+            ...visual.data_binding,
+            fields: updatedFields
+          }
+        })
+        // Select this visual when field is dropped on it
+        onSelect()
+      }
+    },
+    collect: (monitor) => ({
+      isFieldOver: monitor.isOver() && monitor.canDrop(),
+    }),
+  })
+
+  // Combine drag and drop refs
+  // Attach drag handle to the header, drop to the entire element
   drag(elementRef)
+  drop(elementRef)
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.target === e.currentTarget || (e.target as Element).closest('.visual-header')) {
@@ -354,8 +380,8 @@ const VisualComponent: React.FC<VisualComponentProps> = ({
         // Enhanced transitions and shadows
         'transition-all duration-150 ease-out transform-gpu',
         // Selection states with Power BI-style feedback
-        isSelected 
-          ? 'border-blue-500 shadow-lg ring-2 ring-blue-200/50 ring-offset-1' 
+        isSelected
+          ? 'border-blue-500 shadow-lg ring-2 ring-blue-200/50 ring-offset-1'
           : 'border-gray-200 shadow-md hover:border-gray-300 hover:shadow-lg',
         // Dragging states with better visual feedback
         isDraggedFromCanvas && 'opacity-80 shadow-xl scale-105 rotate-1 z-50',
@@ -363,7 +389,9 @@ const VisualComponent: React.FC<VisualComponentProps> = ({
         // Disable interactions during operations
         (isDragging || isResizing) && 'select-none pointer-events-none',
         // Hover effects for better discoverability
-        !isDragging && !isResizing && 'hover:shadow-lg hover:border-gray-300'
+        !isDragging && !isResizing && 'hover:shadow-lg hover:border-gray-300',
+        // Highlight when field is being dragged over
+        isFieldOver && 'ring-4 ring-green-300 border-green-500 bg-green-50/30'
       )}
       style={{
         left: visual.position.x,

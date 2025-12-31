@@ -17,43 +17,17 @@ from app.core.database import Base
 
 
 class ConnectionType(enum.Enum):
-    """PBIDS connection types."""
-    # Database connections
-    SQL_SERVER = "Sql"
-    ORACLE = "Oracle" 
-    OLEDB = "OleDb"
-    ODBC = "Odbc"
+    """PBIDS connection types - Phase 1 Implementation."""
+    # Database connections (Phase 1)
     MYSQL = "MySql"
     POSTGRESQL = "PostgreSql"
-    TERADATA = "Teradata"
-    MONGODB = "MongoDb"
-    
-    # Cloud services
-    AZURE_SQL = "AzureSqlDatabase"
-    AZURE_ANALYSIS_SERVICES = "AzureAnalysisServices"
-    POWER_BI_DATASETS = "PowerBIDatasets"
-    GOOGLE_BIGQUERY = "GoogleBigQuery"
-    AMAZON_REDSHIFT = "AmazonRedshift"
-    SNOWFLAKE = "Snowflake"
-    
-    # File sources
+    MARIADB = "MariaDb"
+
+    # File sources (Phase 1)
     EXCEL = "Excel"
-    CSV = "Csv" 
-    TEXT = "Text"
-    XML = "Xml"
+    CSV = "Csv"
     JSON = "Json"
-    PARQUET = "Parquet"
-    FOLDER = "Folder"
-    
-    # Web sources
-    WEB = "Web"
-    ODATA = "OData"
-    SHAREPOINT = "SharePoint"
-    GOOGLE_SHEETS = "GoogleSheets"
-    
-    # Other
-    BLANK_QUERY = "BlankQuery"
-    SPARK = "Spark"
+    PDF = "Pdf"
 
 
 class AuthenticationKind(enum.Enum):

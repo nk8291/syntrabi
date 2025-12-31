@@ -15,7 +15,8 @@
       "Bash(chmod:*)",
       "mcp__ide__getDiagnostics",
       "WebFetch(domain:sqlalche.me)",
-      "WebFetch(domain:docs.sqlalchemy.org)"
+      "WebFetch(domain:docs.sqlalchemy.org)",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": []

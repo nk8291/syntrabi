@@ -11,14 +11,12 @@ alembic==1.12.1
 psycopg2-binary==2.9.9
 asyncpg==0.29.0
 
-# Database Connectors (for various data sources)
+# Database Connectors (Phase 1: PostgreSQL, MySQL, MariaDB)
 aiomysql==0.2.0  # MySQL and MariaDB async connector
-# pyodbc>=5.0.0  # ODBC connector (requires system ODBC drivers)
-# teradatasql>=17.20.0  # Teradata connector
-# databricks-sql-connector>=2.9.0  # Databricks SQL Warehouse connector
-# pyhive>=0.7.0  # Apache Spark/Hive connector
-# jaydebeapi>=1.2.3  # JDBC connector (requires Java and JDBC drivers)
-# cx_Oracle>=8.3.0  # Oracle connector (requires Oracle Instant Client)
+
+# File Processing (Phase 1: CSV, Excel, JSON, PDF)
+openpyxl==3.1.2  # Excel file reading/writing
+pdfplumber==0.10.3  # PDF table extraction
 
 # Redis & Caching
 redis[hiredis]==5.0.1
