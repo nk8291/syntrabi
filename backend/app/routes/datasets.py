@@ -4,7 +4,7 @@ Handles dataset management, data source connections, and querying.
 """
 
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Body
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import update, select
@@ -418,12 +418,27 @@ async def get_supported_connector_types():
 
 @router.post("/connectors/test")
 async def test_data_source_connection(
-    connector_type: str,
-    config: Dict[str, Any],
+    request: Dict[str, Any] = Body(...),
     current_user: User = Depends(get_current_user)
 ):
     """Test connection to a data source."""
     try:
+        # Extract connector_type and config from request body
+        connector_type = request.get("connector_type")
+        config = request.get("config")
+
+        if not connector_type:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="connector_type is required"
+            )
+
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="config is required"
+            )
+
         # Convert string to enum
         try:
             connector_enum = ConnectorType(connector_type)
@@ -464,8 +479,7 @@ async def test_data_source_connection(
 
 @router.post("/connectors/schema")
 async def get_data_source_schema(
-    connector_type: str,
-    config: Dict[str, Any],
+    request: Dict[str, Any] = Body(...),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -473,6 +487,22 @@ async def get_data_source_schema(
     This is step 2 in the new database connector flow.
     """
     try:
+        # Extract connector_type and config from request body
+        connector_type = request.get("connector_type")
+        config = request.get("config")
+
+        if not connector_type:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="connector_type is required"
+            )
+
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="config is required"
+            )
+
         # Convert string to enum
         try:
             connector_enum = ConnectorType(connector_type)
@@ -518,14 +548,29 @@ async def get_data_source_schema(
 
 @router.post("/connectors/preview")
 async def preview_data_source(
-    connector_type: str,
-    config: Dict[str, Any],
-    table_name: Optional[str] = None,
-    limit: int = 100,
+    request: Dict[str, Any] = Body(...),
     current_user: User = Depends(get_current_user)
 ):
     """Preview data from a data source."""
     try:
+        # Extract parameters from request body
+        connector_type = request.get("connector_type")
+        config = request.get("config")
+        table_name = request.get("table_name")
+        limit = request.get("limit", 100)
+
+        if not connector_type:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="connector_type is required"
+            )
+
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="config is required"
+            )
+
         # Convert string to enum
         try:
             connector_enum = ConnectorType(connector_type)
@@ -534,7 +579,7 @@ async def preview_data_source(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Unsupported connector type: {connector_type}"
             )
-        
+
         # Create connector and get sample data
         connector = DataConnectorFactory.create_connector(connector_enum, config)
         sample_data = await connector.get_sample_data(table_name, limit)

@@ -101,10 +101,13 @@ class PostgreSQLConnector(DataSourceConnector):
                 pool_pre_ping=True,
                 pool_size=5,
                 max_overflow=10,
-                pool_timeout=10
+                pool_timeout=10,
+                isolation_level="AUTOCOMMIT"  # Use autocommit to prevent transaction issues
             )
 
-            async with engine.begin() as conn:
+            # Use connect() for read-only operations with autocommit mode
+            # This prevents transaction rollback issues when individual queries fail
+            async with engine.connect() as conn:
                 # Get tables from all user schemas (excluding system schemas)
                 tables_query = """
                 SELECT schemaname, tablename, 'BASE TABLE' as table_type
@@ -122,51 +125,64 @@ class PostgreSQLConnector(DataSourceConnector):
                 schema = {"tables": []}
 
                 for table in tables:
-                    table_info = {
-                        "schema": table[0],
-                        "name": table[1],
-                        "type": table[2],
-                        "columns": []
-                    }
-
-                    # Get columns for each table
-                    columns_query = """
-                    SELECT column_name, data_type, is_nullable, column_default
-                    FROM information_schema.columns
-                    WHERE table_schema = :schema AND table_name = :table_name
-                    ORDER BY ordinal_position
-                    """
-                    columns_result = await conn.execute(
-                        text(columns_query),
-                        {"schema": table[0], "table_name": table[1]}
-                    )
-                    columns = columns_result.fetchall()
-
-                    for column in columns:
-                        table_info["columns"].append({
-                            "name": column[0],
-                            "type": column[1],
-                            "nullable": column[2] == 'YES',
-                            "default": column[3]
-                        })
-
-                    # Try to get approximate row count (fast for PostgreSQL)
+                    # Wrap each table's metadata fetch in try-except to prevent one failure from breaking the whole process
                     try:
-                        row_count_query = """
-                        SELECT reltuples::bigint AS estimate
-                        FROM pg_class
-                        WHERE oid = :table_oid::regclass
-                        """
-                        row_result = await conn.execute(
-                            text(row_count_query),
-                            {"table_oid": f"{table[0]}.{table[1]}"}
-                        )
-                        row_count = row_result.scalar()
-                        table_info["row_count"] = int(row_count) if row_count else 0
-                    except:
-                        table_info["row_count"] = 0
+                        table_info = {
+                            "schema": table[0],
+                            "name": table[1],
+                            "type": table[2],
+                            "columns": []
+                        }
 
-                    schema["tables"].append(table_info)
+                        # Get columns for each table
+                        columns_query = """
+                        SELECT column_name, data_type, is_nullable, column_default
+                        FROM information_schema.columns
+                        WHERE table_schema = :schema AND table_name = :table_name
+                        ORDER BY ordinal_position
+                        """
+                        try:
+                            columns_result = await conn.execute(
+                                text(columns_query),
+                                {"schema": table[0], "table_name": table[1]}
+                            )
+                            columns = columns_result.fetchall()
+
+                            for column in columns:
+                                table_info["columns"].append({
+                                    "name": column[0],
+                                    "type": column[1],
+                                    "nullable": column[2] == 'YES',
+                                    "default": column[3]
+                                })
+                        except Exception as col_error:
+                            logger.warning(f"Failed to get columns for {table[0]}.{table[1]}", error=str(col_error))
+                            # Skip this table if we can't get columns
+                            continue
+
+                        # Try to get approximate row count (fast for PostgreSQL)
+                        try:
+                            row_count_query = """
+                            SELECT reltuples::bigint AS estimate
+                            FROM pg_class
+                            WHERE oid = :table_oid::regclass
+                            """
+                            row_result = await conn.execute(
+                                text(row_count_query),
+                                {"table_oid": f"{table[0]}.{table[1]}"}
+                            )
+                            row_count = row_result.scalar()
+                            table_info["row_count"] = int(row_count) if row_count else 0
+                        except Exception as row_error:
+                            logger.warning(f"Failed to get row count for {table[0]}.{table[1]}", error=str(row_error))
+                            table_info["row_count"] = 0
+
+                        schema["tables"].append(table_info)
+
+                    except Exception as table_error:
+                        logger.warning(f"Failed to process table {table[0]}.{table[1]}", error=str(table_error))
+                        # Continue with next table
+                        continue
 
             return schema
         except Exception as e:
@@ -250,7 +266,10 @@ class MySQLConnector(DataSourceConnector):
         engine = None
         try:
             engine = create_async_engine(self.connection_string)
-            async with engine.begin() as conn:
+
+            # Use connect() instead of begin() for read-only operations
+            # This allows better error handling without transaction rollback issues
+            async with engine.connect() as conn:
                 # Get all user databases and their tables (excluding system databases)
                 tables_query = """
                 SELECT table_schema, table_name, table_type
@@ -263,53 +282,66 @@ class MySQLConnector(DataSourceConnector):
 
                 schema = {"tables": []}
                 for table in tables:
-                    schema_name = table[0]
-                    table_name = table[1]
-                    table_info = {
-                        "schema": schema_name,
-                        "name": table_name,
-                        "type": table[2],
-                        "columns": []
-                    }
-
-                    # Get columns for each table
-                    columns_query = """
-                    SELECT column_name, column_type, is_nullable, column_default
-                    FROM information_schema.columns
-                    WHERE table_schema = :schema AND table_name = :table
-                    ORDER BY ordinal_position
-                    """
-                    columns_result = await conn.execute(
-                        text(columns_query),
-                        {"schema": schema_name, "table": table_name}
-                    )
-                    columns = columns_result.fetchall()
-
-                    for column in columns:
-                        table_info["columns"].append({
-                            "name": column[0],
-                            "type": column[1],
-                            "nullable": column[2] == 'YES',
-                            "default": column[3]
-                        })
-
-                    # Get approximate row count
+                    # Wrap each table's metadata fetch in try-except to prevent one failure from breaking the whole process
                     try:
-                        row_count_query = """
-                        SELECT table_rows
-                        FROM information_schema.tables
-                        WHERE table_schema = :schema AND table_name = :table
-                        """
-                        row_result = await conn.execute(
-                            text(row_count_query),
-                            {"schema": schema_name, "table": table_name}
-                        )
-                        row_count = row_result.scalar()
-                        table_info["row_count"] = int(row_count) if row_count else 0
-                    except:
-                        table_info["row_count"] = 0
+                        schema_name = table[0]
+                        table_name = table[1]
+                        table_info = {
+                            "schema": schema_name,
+                            "name": table_name,
+                            "type": table[2],
+                            "columns": []
+                        }
 
-                    schema["tables"].append(table_info)
+                        # Get columns for each table
+                        columns_query = """
+                        SELECT column_name, column_type, is_nullable, column_default
+                        FROM information_schema.columns
+                        WHERE table_schema = :schema AND table_name = :table
+                        ORDER BY ordinal_position
+                        """
+                        try:
+                            columns_result = await conn.execute(
+                                text(columns_query),
+                                {"schema": schema_name, "table": table_name}
+                            )
+                            columns = columns_result.fetchall()
+
+                            for column in columns:
+                                table_info["columns"].append({
+                                    "name": column[0],
+                                    "type": column[1],
+                                    "nullable": column[2] == 'YES',
+                                    "default": column[3]
+                                })
+                        except Exception as col_error:
+                            logger.warning(f"Failed to get columns for {schema_name}.{table_name}", error=str(col_error))
+                            # Skip this table if we can't get columns
+                            continue
+
+                        # Get approximate row count
+                        try:
+                            row_count_query = """
+                            SELECT table_rows
+                            FROM information_schema.tables
+                            WHERE table_schema = :schema AND table_name = :table
+                            """
+                            row_result = await conn.execute(
+                                text(row_count_query),
+                                {"schema": schema_name, "table": table_name}
+                            )
+                            row_count = row_result.scalar()
+                            table_info["row_count"] = int(row_count) if row_count else 0
+                        except Exception as row_error:
+                            logger.warning(f"Failed to get row count for {schema_name}.{table_name}", error=str(row_error))
+                            table_info["row_count"] = 0
+
+                        schema["tables"].append(table_info)
+
+                    except Exception as table_error:
+                        logger.warning(f"Failed to process table {schema_name}.{table_name}", error=str(table_error))
+                        # Continue with next table
+                        continue
 
             return schema
         except Exception as e:

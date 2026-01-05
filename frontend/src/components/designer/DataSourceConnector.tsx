@@ -14,7 +14,6 @@ import {
   ArrowUpTrayIcon
 } from '@heroicons/react/24/outline'
 import { datasetService } from '../../services/datasetService'
-import DatabaseSchemaBrowser from '../dataset/DatabaseSchemaBrowser'
 
 export type DataSourceType =
   // Files (Phase 1)
@@ -78,9 +77,9 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
   const [isConnecting, setIsConnecting] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
   const [errorMessage, setErrorMessage] = useState<string>('')
-  const [step, setStep] = useState<'select-source' | 'configure' | 'schema-browser' | 'preview'>('select-source')
+  const [step, setStep] = useState<'select-source' | 'configure' | 'preview'>('select-source')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [showSchemaBrowser, setShowSchemaBrowser] = useState(false)
+  // const [showSchemaBrowser, setShowSchemaBrowser] = useState(false) // Removed for Phase 1
 
   // Phase 1 Data Sources
   const dataSources: DataSource[] = [
@@ -226,37 +225,10 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
     }
   }
 
-  const handleProceedToSchemaBrowser = () => {
-    setShowSchemaBrowser(true)
-    setStep('schema-browser')
-  }
-
-  const handleSchemaImport = async (selectedTables: Array<{ schema: string; table: string }>) => {
-    if (!selectedSource) return
-
-    setIsConnecting(true)
-    try {
-      // TODO: Create new endpoint for database table import
-      // For now, use the existing createDatabaseDataset endpoint
-      const dataset = await datasetService.createDatabaseDataset(
-        workspaceId,
-        `${connectionConfig.database} - ${selectedTables.length} tables`,
-        selectedSource.type,
-        {
-          ...connectionConfig,
-          selected_tables: selectedTables
-        }
-      )
-
-      onConnect(selectedSource, connectionConfig, connectionMode, dataset.id)
-    } catch (error: any) {
-      setConnectionStatus('error')
-      setErrorMessage(error.message || 'Import failed')
-    } finally {
-      setIsConnecting(false)
-      setShowSchemaBrowser(false)
-    }
-  }
+  // Schema browser functions removed for Phase 1 - Direct connection without table selection
+  // Future Phase 2: Re-implement these for table selection feature
+  // const handleProceedToSchemaBrowser = () => { ... }
+  // const handleSchemaImport = async (selectedTables) => { ... }
 
   const handleConnect = async () => {
     if (!selectedSource) return
@@ -276,11 +248,18 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
 
         onConnect(selectedSource, connectionConfig, connectionMode, datasetId)
       }
-      // For database connections, show schema browser instead
+      // For database connections, create connection directly
       else if (selectedSource.category === 'database') {
-        // Connection already tested, proceed to schema browser
-        handleProceedToSchemaBrowser()
-        return
+        // Connection already tested, create dataset directly
+        const dataset = await datasetService.createDatabaseDataset(
+          workspaceId,
+          connectionConfig.database || `${selectedSource.name} Connection`,
+          selectedSource.type,
+          connectionConfig
+        )
+        datasetId = dataset.id
+
+        onConnect(selectedSource, connectionConfig, connectionMode, datasetId)
       }
     } catch (error: any) {
       setConnectionStatus('error')
@@ -569,25 +548,15 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
                 {isConnecting
                   ? 'Connecting...'
                   : selectedSource.category === 'database'
-                    ? 'Browse Tables'
+                    ? 'Connect'
                     : 'Import'}
               </button>
             </div>
           </div>
         )}
 
-        {/* Schema Browser (for database connectors) */}
-        {showSchemaBrowser && selectedSource && step === 'schema-browser' && (
-          <DatabaseSchemaBrowser
-            connectorType={selectedSource.type}
-            connectionConfig={connectionConfig}
-            onImport={handleSchemaImport}
-            onCancel={() => {
-              setShowSchemaBrowser(false)
-              setStep('configure')
-            }}
-          />
-        )}
+        {/* Schema Browser removed - Phase 1 uses direct connection without table selection */}
+        {/* Future Phase 2: Re-enable schema browser for table selection */}
       </div>
     </div>
   )
