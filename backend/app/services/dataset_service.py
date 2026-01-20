@@ -45,12 +45,13 @@ class DatasetService:
             )
 
             session.add(dataset)
-            await session.commit()
-            await session.refresh(dataset)
+            # Use flush to get the ID without committing the transaction
+            await session.flush()
 
             # Process the dataset based on type
             if connector_type == ConnectorType.CSV and file_content:
                 await DatasetService._process_csv_data(session, dataset, file_content)
+                # CSV processing handles its own commit
             elif connector_type in [
                 # Phase 1 database connectors
                 ConnectorType.POSTGRESQL,
@@ -58,7 +59,7 @@ class DatasetService:
                 ConnectorType.MARIADB
             ]:
                 # For database connections, fetch real schema immediately
-                # This provides a Power BI-like experience where tables are visible after connection
+                # This handles its own commits internally
                 await DatasetService._create_sample_schema(session, dataset, connector_type)
             elif connector_type in [
                 # Phase 1 file connectors (non-CSV)
@@ -67,7 +68,6 @@ class DatasetService:
                 ConnectorType.PDF
             ]:
                 # For file connectors, mark as ready with placeholder
-                # Actual processing will happen when file is uploaded
                 dataset.status = DatasetStatus.READY
                 dataset.schema_json = {
                     "message": "File processing complete",
@@ -110,12 +110,11 @@ class DatasetService:
                 raise ValueError("CSV file is empty or has no headers")
 
             sample_rows = []
-            row_count = 0  # Initialize row counter
+            row_count = 0
 
             for row in csv_reader:
                 row_count += 1
-
-                if len(sample_rows) < 100:  # Sample first 100 rows
+                if len(sample_rows) < 100:
                     sample_rows.append(row)
 
             # Infer schema
@@ -154,12 +153,11 @@ class DatasetService:
             dataset.schema_json = schema_json
             dataset.row_count = row_count
             dataset.file_size = len(file_content)
-            # Store actual CSV data (up to 100 rows) as sample for preview and visualizations
             dataset.sample_rows = sample_rows[:100]
             dataset.status = DatasetStatus.READY
 
             await session.commit()
-            await session.refresh(dataset)  # Refresh to avoid lazy loading issues
+            await session.refresh(dataset)
 
             logger.info("CSV dataset processed successfully",
                        dataset_id=str(dataset.id), row_count=row_count)
@@ -168,7 +166,7 @@ class DatasetService:
             dataset.status = DatasetStatus.ERROR
             dataset.error_message = str(e)
             await session.commit()
-            await session.refresh(dataset)  # Refresh to avoid lazy loading issues
+            await session.refresh(dataset)
             logger.error("Failed to process CSV data",
                         dataset_id=str(dataset.id), error=str(e))
             raise
@@ -181,13 +179,23 @@ class DatasetService:
     ) -> None:
         """Create schema for database connections by fetching real schema."""
         try:
+            # CRITICAL FIX: Commit the dataset first so we're outside the transaction
+            # when we create the connector with its own engine
+            await session.commit()
+            await session.refresh(dataset)
+
             # Import here to avoid circular dependency
             from app.services.data_connectors import DataConnectorFactory
 
             # Try to fetch real schema from the database
             try:
-                connector = DataConnectorFactory.create_connector(connector_type, dataset.connector_config)
-                # Fetch schema from 'public' schema only, limit to first 50 tables for faster response
+                # Create connector - this creates a NEW engine, separate from our session
+                connector = DataConnectorFactory.create_connector(
+                    connector_type, 
+                    dataset.connector_config
+                )
+                
+                # Fetch schema from database using the connector's own engine
                 real_schema = await connector.get_schema(schema_filter='public', limit_tables=50)
 
                 if "error" not in real_schema and real_schema.get("tables"):
@@ -200,7 +208,7 @@ class DatasetService:
                             "name": f"{table_info.get('schema', 'public')}.{table_info['name']}",
                             "displayName": table_info['name'].replace('_', ' ').title(),
                             "columns": [],
-                            "rowCount": 0  # Will be updated when data is fetched
+                            "rowCount": 0
                         }
 
                         # Map PostgreSQL types to Power BI types
@@ -231,7 +239,6 @@ class DatasetService:
 
                         for col in table_info["columns"]:
                             col_type = col['type'].lower()
-                            # Extract base type (e.g., "character varying" from "character varying(255)")
                             base_type = col_type.split('(')[0].strip()
                             mapped_type = type_mapping.get(base_type, 'string')
 
@@ -256,10 +263,11 @@ class DatasetService:
                         session.add(table)
 
                     dataset.schema_json = schema_json
-                    dataset.row_count = 0  # Will be calculated when data is queried
+                    dataset.row_count = 0
                     dataset.status = DatasetStatus.READY
 
                     await session.commit()
+                    await session.refresh(dataset)
 
                     logger.info("Real schema fetched and created for dataset",
                                dataset_id=str(dataset.id),
@@ -354,6 +362,7 @@ class DatasetService:
             dataset.status = DatasetStatus.READY
             
             await session.commit()
+            await session.refresh(dataset)
             
             logger.info("Sample schema created for dataset", 
                        dataset_id=str(dataset.id), connector_type=connector_type.value)
@@ -362,6 +371,7 @@ class DatasetService:
             dataset.status = DatasetStatus.ERROR    
             dataset.error_message = str(e)
             await session.commit()
+            await session.refresh(dataset)
             logger.error("Failed to create sample schema", 
                         dataset_id=str(dataset.id), error=str(e))
             raise
@@ -372,7 +382,6 @@ class DatasetService:
         if not sample_rows:
             return "string"
         
-        # Get sample values for this column
         sample_values = []
         for row in sample_rows:
             if col_index < len(row) and row[col_index].strip():
@@ -382,7 +391,6 @@ class DatasetService:
             return "string"
         
         # Try to infer type
-        # Check for integers
         try:
             all_integers = all(str(int(v)) == v for v in sample_values)
             if all_integers:
@@ -390,7 +398,6 @@ class DatasetService:
         except ValueError:
             pass
         
-        # Check for decimals
         try:
             all_decimals = all('.' in v and float(v) for v in sample_values)
             if all_decimals:
@@ -398,7 +405,6 @@ class DatasetService:
         except ValueError:
             pass
         
-        # Check for numbers (including integers and decimals)
         try:
             all_numbers = all(float(v) for v in sample_values)
             if all_numbers:
@@ -406,24 +412,21 @@ class DatasetService:
         except ValueError:
             pass
         
-        # Check for booleans
         boolean_values = {"true", "false", "yes", "no", "1", "0", "y", "n"}
         if all(v.lower() in boolean_values for v in sample_values):
             return "boolean"
         
-        # Check for dates (basic patterns)
         import re
         date_patterns = [
-            r'^\d{4}-\d{2}-\d{2}$',  # YYYY-MM-DD
-            r'^\d{2}/\d{2}/\d{4}$',  # MM/DD/YYYY
-            r'^\d{2}-\d{2}-\d{4}$',  # MM-DD-YYYY
+            r'^\d{4}-\d{2}-\d{2}$',
+            r'^\d{2}/\d{2}/\d{4}$',
+            r'^\d{2}-\d{2}-\d{4}$',
         ]
         
         for pattern in date_patterns:
             if all(re.match(pattern, v) for v in sample_values):
                 return "date"
         
-        # Default to string
         return "string"
 
     @staticmethod
@@ -433,8 +436,7 @@ class DatasetService:
     ) -> List[Dataset]:
         """Get all datasets in a workspace."""
         try:
-            # For demo workspace IDs like 'ws1', return empty list to use fallback data
-            if len(workspace_id) < 10:  # Simple workspace ID validation
+            if len(workspace_id) < 10:
                 return []
                 
             stmt = (
@@ -447,7 +449,7 @@ class DatasetService:
             return result.scalars().all()
         except Exception as e:
             logger.error(f"Error querying datasets for workspace {workspace_id}: {str(e)}")
-            return []  # Return empty list to use fallback data
+            return []
 
     @staticmethod
     async def get_dataset_by_id(
@@ -487,23 +489,24 @@ class DatasetService:
         """Fetch real schema from database and cache it."""
         from app.services.data_connectors import DataConnectorFactory
 
-        # Check if schema is already fetched (and not just placeholder)
+        # Check if schema is already fetched
         if (dataset.schema_json and
             dataset.schema_json.get("tables") and
             len(dataset.schema_json["tables"]) > 0 and
-            not dataset.schema_json.get("message")):  # Skip if it's the placeholder
-            return  # Schema already cached
+            not dataset.schema_json.get("message")):
+            return
 
         logger.info(f"Fetching schema for dataset {dataset.id}")
 
         try:
-            # Create connector (this creates a NEW engine, separate from our session)
+            # CRITICAL FIX: Create connector outside the session transaction
+            # This connector has its own engine separate from our session
             connector = DataConnectorFactory.create_connector(
                 dataset.connector_type,
                 dataset.connector_config
             )
 
-            # Fetch schema from database
+            # Fetch schema from database using connector's own engine
             real_schema = await connector.get_schema(schema_filter='public', limit_tables=50)
 
             if "error" in real_schema:
@@ -578,9 +581,9 @@ class DatasetService:
             # Update dataset with real schema
             dataset.schema_json = schema_json
             dataset.status = DatasetStatus.READY
-            dataset.error_message = None  # Clear any previous errors
+            dataset.error_message = None
             await session.commit()
-            await session.refresh(dataset)  # Refresh to avoid lazy loading issues
+            await session.refresh(dataset)
 
             logger.info(f"Schema cached for dataset {dataset.id}, found {len(schema_json['tables'])} tables")
 
@@ -590,7 +593,6 @@ class DatasetService:
             dataset.status = DatasetStatus.ERROR
             dataset.error_message = error_msg
             await session.commit()
-            # Now raise the error so it surfaces to the user
             raise
 
     @staticmethod
@@ -608,33 +610,27 @@ class DatasetService:
             if not dataset:
                 raise ValueError(f"Dataset {dataset_id} not found")
 
-            # Check if dataset is in error state
             if dataset.status == DatasetStatus.ERROR:
                 raise ValueError(f"Dataset is in error state: {dataset.error_message or 'Unknown error'}")
 
             # For CSV files, use the actual sample data stored
             if dataset.connector_type == ConnectorType.CSV:
                 if dataset.sample_rows and len(dataset.sample_rows) > 0:
-                    # Get column names from schema
                     if not dataset.schema_json or not dataset.schema_json.get("tables"):
                         raise ValueError("CSV dataset has no schema information")
 
                     schema_columns = dataset.schema_json["tables"][0]["columns"]
                     column_names = [col["name"] for col in schema_columns]
 
-                    # Convert list of lists to list of dictionaries
                     limit = query_params.get("limit", 100)
                     raw_rows = dataset.sample_rows[:limit]
 
                     data = []
                     for row in raw_rows:
-                        # Create dictionary with column names as keys
                         row_dict = {}
                         for i, col_name in enumerate(column_names):
-                            # Get value from row, or empty string if index out of range
                             value = row[i] if i < len(row) else ""
 
-                            # Convert to appropriate type based on schema
                             col_type = schema_columns[i]["type"]
                             if col_type in ["integer", "int"] and value:
                                 try:
@@ -664,28 +660,28 @@ class DatasetService:
                         "execution_time": execution_time
                     }
                 else:
-                    raise ValueError("No data available for CSV dataset. The CSV may not have been processed correctly.")
+                    raise ValueError("No data available for CSV dataset.")
 
-            # For Phase 1 database connectors, fetch schema if not already cached
+            # For Phase 1 database connectors
             if dataset.connector_type in [
                 ConnectorType.POSTGRESQL,
                 ConnectorType.MYSQL,
                 ConnectorType.MARIADB
             ]:
-                # Fetch and cache schema on first access (will raise if fails)
+                # Fetch and cache schema on first access
                 await DatasetService.fetch_and_cache_schema(session, dataset)
 
                 from app.services.data_connectors import DataConnectorFactory
 
+                # Create connector with its own engine
                 connector = DataConnectorFactory.create_connector(
                     dataset.connector_type,
                     dataset.connector_config
                 )
 
-                # Get the table name from query_params or use first table
+                # Get table name
                 table_name = query_params.get("table_name")
                 if not table_name and dataset.schema_json and dataset.schema_json.get("tables"):
-                    # Use first table by default
                     table_name = dataset.schema_json["tables"][0]["name"]
 
                 if not table_name:
@@ -702,7 +698,7 @@ class DatasetService:
 
                 query = f"SELECT {col_str} FROM {table_name} LIMIT {limit}"
 
-                # Execute query
+                # Execute query using connector's own engine
                 result = await connector.execute_query(query, limit=limit)
 
                 if "error" in result:
@@ -719,9 +715,6 @@ class DatasetService:
 
             # For other connector types, generate sample data
             sample_data = DatasetService._generate_sample_data(dataset, query_params)
-
-            if sample_data["total_rows"] == 0:
-                logger.warning(f"Generated sample data has 0 rows for dataset {dataset_id}")
 
             execution_time = time.time() - start_time
             return {
@@ -744,11 +737,9 @@ class DatasetService:
         if not dataset.schema_json or not dataset.schema_json.get("tables"):
             return {"rows": [], "columns": [], "total_rows": 0}
         
-        # Get first table for demo
         table = dataset.schema_json["tables"][0]
         columns = table["columns"]
         
-        # Generate sample rows
         sample_count = min(query_params.get("limit", 100), 1000)
         rows = []
         
@@ -768,7 +759,7 @@ class DatasetService:
                     base_date = datetime.now() - timedelta(days=365)
                     random_date = base_date + timedelta(days=random.randint(0, 365))
                     row[col_name] = random_date.strftime("%Y-%m-%d" if col_type == "date" else "%Y-%m-%d %H:%M:%S")
-                else:  # string
+                else:
                     options = [
                         f"Sample {col_name} {i}", f"Value {i}", f"Item {i}",
                         f"Category {random.choice(['A', 'B', 'C'])}", 
@@ -795,12 +786,11 @@ class DatasetService:
             if not dataset:
                 raise ValueError(f"Dataset {dataset_id} not found")
 
-            # Update refresh timestamp
             dataset.last_refresh = datetime.utcnow()
             dataset.status = DatasetStatus.READY
 
             await session.commit()
-            await session.refresh(dataset)  # Refresh to avoid lazy loading issues
+            await session.refresh(dataset)
 
             logger.info("Dataset refreshed successfully", dataset_id=dataset_id)
             return dataset

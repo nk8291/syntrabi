@@ -102,13 +102,10 @@ class PostgreSQLConnector(DataSourceConnector):
                 pool_size=5,
                 max_overflow=10,
                 pool_timeout=10,
-                isolation_level="AUTOCOMMIT"  # Use autocommit to prevent transaction issues
+                isolation_level="AUTOCOMMIT"
             )
 
-            # Use connect() for read-only operations with autocommit mode
-            # This prevents transaction rollback issues when individual queries fail
             async with engine.connect() as conn:
-                # Get tables from all user schemas (excluding system schemas)
                 tables_query = """
                 SELECT schemaname, tablename, 'BASE TABLE' as table_type
                 FROM pg_tables
@@ -125,7 +122,6 @@ class PostgreSQLConnector(DataSourceConnector):
                 schema = {"tables": []}
 
                 for table in tables:
-                    # Wrap each table's metadata fetch in try-except to prevent one failure from breaking the whole process
                     try:
                         table_info = {
                             "schema": table[0],
@@ -157,20 +153,17 @@ class PostgreSQLConnector(DataSourceConnector):
                                 })
                         except Exception as col_error:
                             logger.warning(f"Failed to get columns for {table[0]}.{table[1]}", error=str(col_error))
-                            # Skip this table if we can't get columns
                             continue
 
-                        # Try to get approximate row count (fast for PostgreSQL)
+                        # FIXED: Get approximate row count
+                        # Use string formatting instead of parameter binding for regclass
                         try:
-                            row_count_query = """
+                            row_count_query = f"""
                             SELECT reltuples::bigint AS estimate
                             FROM pg_class
-                            WHERE oid = :table_oid::regclass
+                            WHERE oid = '{table[0]}.{table[1]}'::regclass
                             """
-                            row_result = await conn.execute(
-                                text(row_count_query),
-                                {"table_oid": f"{table[0]}.{table[1]}"}
-                            )
+                            row_result = await conn.execute(text(row_count_query))
                             row_count = row_result.scalar()
                             table_info["row_count"] = int(row_count) if row_count else 0
                         except Exception as row_error:
@@ -181,7 +174,6 @@ class PostgreSQLConnector(DataSourceConnector):
 
                     except Exception as table_error:
                         logger.warning(f"Failed to process table {table[0]}.{table[1]}", error=str(table_error))
-                        # Continue with next table
                         continue
 
             return schema
