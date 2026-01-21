@@ -28,10 +28,18 @@ const DatasetPreviewModal: React.FC<DatasetPreviewModalProps> = ({
   const [previewData, setPreviewData] = useState<DatasetQueryResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [activeTable, setActiveTable] = useState<string | null>(null)
+
 
   useEffect(() => {
     loadPreviewData()
   }, [dataset.id])
+
+  useEffect(() => {
+  if (dataset.schema_json?.tables?.length) {
+    setActiveTable(dataset.schema_json.tables[0].name)
+  }
+}, [dataset])
 
   const loadPreviewData = async () => {
     try {
@@ -205,12 +213,17 @@ const DatasetPreviewModal: React.FC<DatasetPreviewModalProps> = ({
                 <div className="flex items-center justify-between">
                   <h3 className="text-lg font-medium text-gray-900">Dataset Schema</h3>
                   <span className="text-sm text-gray-500">
-                    {dataset.schema_json.columns?.length || 0} columns
+                    {
+                      dataset.schema_json.tables
+                        ?.find(t => t.name === activeTable)
+                        ?.columns.length || 0
+                    } columns
                   </span>
+
                 </div>
                 
                 <div className="grid gap-4">
-                  {dataset.schema_json.columns?.map((column: any, index: number) => (
+                  {dataset.schema_json.tables?.find(t => t.name === activeTable)?.columns?.map((column: any, index: number) => (
                     <div
                       key={index}
                       className="flex items-center justify-between p-4 border border-gray-200 rounded-lg"

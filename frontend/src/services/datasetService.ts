@@ -127,32 +127,32 @@ class DatasetService {
   /**
    * Create database connection dataset
    */
-  async createDatabaseDataset(
-    workspaceId: string,
-    name: string,
-    connectorType: string,
-    connectionConfig: any
-  ): Promise<Dataset> {
-    const normalizedWorkspaceId = this.normalizeWorkspaceId(workspaceId)
-    const normalizedConnector = this.normalizeConnectorType(connectorType)
+  // async createDatabaseDataset(
+  //   workspaceId: string,
+  //   name: string,
+  //   connectorType: string,
+  //   connectionConfig: any
+  // ): Promise<Dataset> {
+  //   const normalizedWorkspaceId = this.normalizeWorkspaceId(workspaceId)
+  //   const normalizedConnector = this.normalizeConnectorType(connectorType)
 
-    const formData = new FormData()
-    formData.append('name', name)
-    formData.append('connector_type', normalizedConnector)
-    formData.append('connection_config', JSON.stringify(connectionConfig))
+  //   const formData = new FormData()
+  //   formData.append('name', name)
+  //   formData.append('connector_type', normalizedConnector)
+  //   formData.append('connection_config', JSON.stringify(connectionConfig))
 
-    console.log('Creating database dataset payload:', { workspaceId: normalizedWorkspaceId, name, connector_type: normalizedConnector })
+  //   console.log('Creating database dataset payload:', { workspaceId: normalizedWorkspaceId, name, connector_type: normalizedConnector })
 
-    const response = await apiClient.post(
-      `/api/datasets/workspaces/${normalizedWorkspaceId}/datasets`,
-      formData,
-      {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 200000000 // 60 seconds for database connection and schema fetch
-      }
-    )
-    return response.data
-  }
+  //   const response = await apiClient.post(
+  //     `/api/datasets/workspaces/${normalizedWorkspaceId}/datasets`,
+  //     formData,
+  //     {
+  //       headers: { 'Content-Type': 'multipart/form-data' },
+  //       timeout: 200000000 // 60 seconds for database connection and schema fetch
+  //     }
+  //   )
+  //   return response.data
+  // }
 
   /**
    * Query dataset
@@ -235,6 +235,28 @@ class DatasetService {
     })
     return response.data
   }
+
+  async getAvailableTables(payload: {
+    connector_type: string
+    config: any
+  }) {
+    const res = await apiClient.post('/connectors/tables', payload)
+    return res.data
+  }
+  
+ async createDatabaseDatasetWithTables(workspaceId: string, payload: any) {
+  return apiClient.post(
+    `/workspaces/${workspaceId}/datasets`,
+    payload,
+    {
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    }
+  )
+}
+
+
 }
 
 export const datasetService = new DatasetService()

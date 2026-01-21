@@ -20,6 +20,7 @@ import { Dataset, datasetService } from '@/services/datasetService'
 import DatasetUploadModal from './DatasetUploadModal'
 import DatabaseConnectionModal from './DatabaseConnectionModal'
 import DatasetPreviewModal from './DatasetPreviewModal'
+import TableSelectionModal from './TableSelectionModal'
 
 interface DatasetManagerProps {
   workspaceId: string
@@ -40,6 +41,9 @@ const DatasetManager: React.FC<DatasetManagerProps> = ({
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [showDatabaseModal, setShowDatabaseModal] = useState(false)
   const [previewDataset, setPreviewDataset] = useState<Dataset | null>(null)
+  const [dbConfig, setDbConfig] = useState<any | null>(null)
+  const [showTableModal, setShowTableModal] = useState(false)
+
 
   useEffect(() => {
     loadDatasets()
@@ -67,20 +71,33 @@ const DatasetManager: React.FC<DatasetManagerProps> = ({
     }
   }
 
-  const handleDatabaseConnection = async (config: any) => {
-    try {
-      const newDataset = await datasetService.createDatabaseDataset(
-        workspaceId,
-        config.name,
-        config.connector_type,
-        config.connection_config
-      )
-      setDatasets(prev => [...prev, newDataset])
-      setShowDatabaseModal(false)
-    } catch (error) {
-      console.error('Failed to create database connection:', error)
-    }
+  const handleDatabaseConnection = async (config:any) => {
+    setDbConfig(config)
+    setShowDatabaseModal(false)
+    setShowTableModal(true)
   }
+
+
+  const handleTableConfirm = async (tables: string[]) => {
+  if (!dbConfig) return
+
+  const dataset = await datasetService.createDatabaseDatasetWithTables(
+    workspaceId,
+    {
+      name: dbConfig.name,
+      description: dbConfig.description,
+      connector_type: dbConfig.connector_type,
+      connection_config: dbConfig.connection_config,
+      selected_tables: tables,
+      import_data: true
+    }
+  )
+
+  setDatasets(prev => [...prev, dataset])
+  setDbConfig(null)
+  setShowTableModal(false)
+}
+
 
   const handleDeleteDataset = async (dataset: Dataset) => {
     if (window.confirm(`Are you sure you want to delete "${dataset.name}"?`)) {
@@ -359,6 +376,16 @@ const DatasetManager: React.FC<DatasetManagerProps> = ({
           onClose={() => setPreviewDataset(null)}
         />
       )}
+
+      {showTableModal && dbConfig && (
+        <TableSelectionModal
+          connectorType={dbConfig.connector_type}
+          connectionConfig={dbConfig.connection_config}
+          onConfirm={handleTableConfirm}
+          onClose={() => setShowTableModal(false)}
+        />
+      )}
+
     </div>
   )
 }

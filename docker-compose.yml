@@ -71,27 +71,18 @@ services:
       dockerfile: Dockerfile
     container_name: syntra_backend
     environment:
-      # Database
       DATABASE_URL: postgresql://syntra:syntra123@postgres:5432/syntra
       REDIS_URL: redis://redis:6379
-      
-      # Authentication
       JWT_SECRET_KEY: dev-secret-key-change-in-production
       JWT_ALGORITHM: HS256
       JWT_EXPIRE_MINUTES: 1440
-      
-      # Object Storage
       S3_ENDPOINT: http://minio:9000
       S3_ACCESS_KEY: minioadmin
       S3_SECRET_KEY: minioadmin
       S3_BUCKET: syntra-data
-      
-      # Application
       ENVIRONMENT: development
       LOG_LEVEL: INFO
       CORS_ORIGINS: http://localhost:3000,http://localhost:5173
-      
-      # External services
       POSTGRES_HOST: postgres
       REDIS_HOST: redis
       MINIO_HOST: minio
@@ -108,13 +99,14 @@ services:
       minio:
         condition: service_healthy
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
     networks:
       - powerbi_network
+
+    develop:
+      watch:
+        - path: ./backend
+          action: rebuild
+
 
   # React Frontend Service
   frontend:

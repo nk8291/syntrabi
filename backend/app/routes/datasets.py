@@ -1,6 +1,6 @@
 """
 Dataset routes for PowerBI Web Replica.
-Handles dataset management, data source connections, and querying.
+Handles dataset management with proper table selection and data import.
 """
 
 from typing import List, Optional, Dict, Any
@@ -20,13 +20,380 @@ from app.models.dataset import ConnectorType
 from app.models.workspace import Workspace
 from app.services.dataset_service import DatasetService
 from app.services.data_connectors import DataSourceManager, DataConnectorFactory
-from app.services.pbids_service import PBIDSManager
 
 logger = structlog.get_logger()
 router = APIRouter()
 
 
-# Additional endpoints for dataset management
+# ============================================================================
+# REQUEST/RESPONSE MODELS
+# ============================================================================
+
+class TableSelectionRequest(BaseModel):
+    """Request model for table selection."""
+    connector_type: str
+    config: Dict[str, Any]
+
+
+class TableInfo(BaseModel):
+    """Table information for selection."""
+    schema: str
+    name: str
+    display_name: str
+    row_count: int
+    columns: List[Dict[str, Any]]
+
+
+class TableSelectionResponse(BaseModel):
+    """Response model for table listing."""
+    tables: List[TableInfo]
+    total_count: int
+
+
+class CreateDatasetRequest(BaseModel):
+    """Request model for dataset creation with table selection."""
+    name: str
+    description: Optional[str] = None
+    connector_type: str
+    connection_config: Dict[str, Any]
+    selected_tables: List[str]  # List of fully qualified table names (schema.table)
+    import_data: bool = True  # Whether to import actual data or just schema
+
+
+class QueryRequest(BaseModel):
+    """Dataset query request model."""
+    columns: List[str] = []
+    filters: List[Dict[str, Any]] = []
+    aggregations: List[Dict[str, Any]] = []
+    group_by: List[str] = []
+    order_by: List[Dict[str, str]] = []
+    limit: int = 1000
+    offset: int = 0
+
+
+class QueryResponse(BaseModel):
+    """Dataset query response model."""
+    data: List[Dict[str, Any]]
+    columns: List[Dict[str, str]]
+    total_rows: int
+    execution_time: float
+
+
+# ============================================================================
+# NEW TABLE SELECTION ENDPOINT
+# ============================================================================
+
+@router.post("/connectors/tables", response_model=TableSelectionResponse)
+async def get_available_tables(
+    request: TableSelectionRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get list of available tables from a database connection for user selection.
+    This is Step 2 in the new dataset creation flow.
+    """
+    try:
+        # Convert string to enum
+        try:
+            connector_enum = ConnectorType(request.connector_type)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported connector type: {request.connector_type}"
+            )
+
+        # Only database connectors have tables
+        if connector_enum not in [
+            ConnectorType.POSTGRESQL, 
+            ConnectorType.MYSQL, 
+            ConnectorType.MARIADB
+        ]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Table listing only supported for database connectors"
+            )
+
+        # Get schema from data source
+        result = await DataSourceManager.get_data_source_schema(
+            connector_enum, 
+            request.config
+        )
+
+        if not result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=result.get("error", "Failed to retrieve tables")
+            )
+
+        schema_data = result.get("schema", {})
+        tables = schema_data.get("tables", [])
+
+        # Transform to response format
+        table_list = []
+        for table in tables:
+            table_list.append(TableInfo(
+                schema=table.get("schema", "public"),
+                name=table["name"],
+                display_name=table["name"].replace("_", " ").title(),
+                row_count=table.get("row_count", 0),
+                columns=table.get("columns", [])
+            ))
+
+        logger.info(
+            "Tables retrieved for selection",
+            connector_type=request.connector_type,
+            table_count=len(table_list),
+            user_id=str(current_user.id)
+        )
+
+        return TableSelectionResponse(
+            tables=table_list,
+            total_count=len(table_list)
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to retrieve tables", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve tables: {str(e)}"
+        )
+
+
+# ============================================================================
+# UPDATED DATASET CREATION ENDPOINT
+# ============================================================================
+
+@router.post("/workspaces/{workspace_id}/datasets")
+async def create_dataset(
+    workspace_id: str,
+    request: CreateDatasetRequest = Body(...),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    """
+    Create dataset with selected tables and import data.
+    This is Step 3 in the new dataset creation flow.
+    
+    Flow:
+    1. Validate workspace exists
+    2. Create dataset record
+    3. Import selected tables (schema + data)
+    4. Store everything in our database
+    """
+    try:
+        # Ensure workspace exists
+        stmt = select(Workspace).where(Workspace.id == workspace_id)
+        result = await session.execute(stmt)
+        workspace = result.scalar_one_or_none()
+
+        if not workspace:
+            logger.info(f"Workspace {workspace_id} not found, creating default workspace")
+            try:
+                workspace_uuid = UUID(workspace_id) if isinstance(workspace_id, str) else workspace_id
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid workspace ID format: {workspace_id}"
+                )
+
+            workspace = Workspace(
+                id=workspace_uuid,
+                name="My Workspace",
+                description="Default workspace",
+                owner_id=current_user.id,
+                is_public=False
+            )
+            session.add(workspace)
+            await session.flush()
+            logger.info(f"Created default workspace {workspace_id}")
+
+        # Parse connector type
+        try:
+            connector_enum = ConnectorType(request.connector_type.lower())
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported connector type: {request.connector_type}"
+            )
+
+        # Validate selected tables
+        if not request.selected_tables or len(request.selected_tables) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="At least one table must be selected"
+            )
+
+        # Create dataset using service with table selection
+        dataset = await DatasetService.create_dataset_with_import(
+            session=session,
+            workspace_id=workspace_id,
+            name=request.name,
+            description=request.description,
+            connector_type=connector_enum,
+            connection_config=request.connection_config,
+            selected_tables=request.selected_tables,
+            import_data=request.import_data
+        )
+        
+        logger.info(
+            "Dataset created successfully with table import",
+            dataset_id=str(dataset.id),
+            workspace_id=workspace_id,
+            connector_type=request.connector_type,
+            selected_tables=len(request.selected_tables),
+            user_id=str(current_user.id)
+        )
+        
+        return dataset.to_dict()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Dataset creation failed", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Dataset creation failed: {str(e)}"
+        )
+
+
+# ============================================================================
+# FILE UPLOAD ENDPOINT (Separate from database connectors)
+# ============================================================================
+
+@router.post("/workspaces/{workspace_id}/datasets/upload")
+async def upload_dataset_file(
+    workspace_id: str,
+    file: UploadFile = File(...),
+    name: str = Form(...),
+    description: Optional[str] = Form(None),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    """
+    Upload a file-based dataset (CSV, Excel, JSON, PDF).
+    This is a separate flow from database connectors.
+    """
+    try:
+        # Determine connector type from file extension
+        filename = file.filename.lower()
+        if filename.endswith('.csv'):
+            connector_type = ConnectorType.CSV
+        elif filename.endswith(('.xlsx', '.xls')):
+            connector_type = ConnectorType.EXCEL
+        elif filename.endswith('.json'):
+            connector_type = ConnectorType.JSON
+        elif filename.endswith('.pdf'):
+            connector_type = ConnectorType.PDF
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unsupported file type. Supported: CSV, Excel, JSON, PDF"
+            )
+
+        # Read file content
+        file_content = await file.read()
+        
+        # Validate file size (100MB limit)
+        max_size = 100 * 1024 * 1024
+        if len(file_content) > max_size:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="File too large. Maximum size is 100MB."
+            )
+
+        # Ensure workspace exists
+        stmt = select(Workspace).where(Workspace.id == workspace_id)
+        result = await session.execute(stmt)
+        workspace = result.scalar_one_or_none()
+
+        if not workspace:
+            workspace_uuid = UUID(workspace_id)
+            workspace = Workspace(
+                id=workspace_uuid,
+                name="My Workspace",
+                description="Default workspace",
+                owner_id=current_user.id,
+                is_public=False
+            )
+            session.add(workspace)
+            await session.flush()
+
+        # Create dataset from file
+        dataset = await DatasetService.create_dataset(
+            session=session,
+            workspace_id=workspace_id,
+            name=name,
+            description=description,
+            connector_type=connector_type,
+            file_content=file_content,
+            connection_config={}
+        )
+
+        logger.info(
+            "File dataset uploaded successfully",
+            dataset_id=str(dataset.id),
+            connector_type=connector_type.value,
+            file_size=len(file_content)
+        )
+
+        return dataset.to_dict()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("File upload failed", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"File upload failed: {str(e)}"
+        )
+
+
+# ============================================================================
+# EXISTING ENDPOINTS (Kept for compatibility)
+# ============================================================================
+
+@router.get("/workspaces/{workspace_id}/datasets")
+async def list_datasets(
+    workspace_id: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    """List datasets in workspace."""
+    try:
+        datasets = await DatasetService.get_datasets_by_workspace(session, workspace_id)
+        return [dataset.to_dict() for dataset in datasets]
+    except Exception as e:
+        logger.error("Failed to list datasets", workspace_id=workspace_id, error=str(e))
+        return []
+
+
+@router.get("/{dataset_id}")
+async def get_dataset(
+    dataset_id: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    """Get dataset details."""
+    try:
+        dataset = await DatasetService.get_dataset_by_id(session, dataset_id)
+        if not dataset:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Dataset not found"
+            )
+        return dataset.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get dataset", dataset_id=dataset_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve dataset"
+        )
+
+
 @router.delete("/{dataset_id}")
 async def delete_dataset(
     dataset_id: str,
@@ -49,311 +416,6 @@ async def delete_dataset(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete dataset"
-        )
-
-
-@router.post("/{dataset_id}/refresh")
-async def refresh_dataset(
-    dataset_id: str,
-    current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_async_session)
-):
-    """Refresh dataset data."""
-    try:
-        dataset = await DatasetService.refresh_dataset(session, dataset_id)
-        return dataset.to_dict()
-    except Exception as e:
-        logger.error("Failed to refresh dataset", dataset_id=dataset_id, error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to refresh dataset"
-        )
-
-
-@router.get("/{dataset_id}/preview")
-async def preview_dataset(
-    dataset_id: str,
-    limit: int = 100,
-    current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_async_session)
-):
-    """Get dataset preview with sample data."""
-    try:
-        result = await DatasetService.query_dataset(
-            session=session,
-            dataset_id=dataset_id,
-            query_params={"limit": limit}
-        )
-        return result
-    except Exception as e:
-        logger.error("Failed to preview dataset", dataset_id=dataset_id, error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to preview dataset"
-        )
-
-
-# Request/Response Models
-class QueryRequest(BaseModel):
-    """Dataset query request model."""
-    columns: List[str] = []
-    filters: List[Dict[str, Any]] = []
-    aggregations: List[Dict[str, Any]] = []
-    group_by: List[str] = []
-    order_by: List[Dict[str, str]] = []
-    limit: int = 1000
-    offset: int = 0
-
-
-class QueryResponse(BaseModel):
-    """Dataset query response model."""
-    data: List[Dict[str, Any]]
-    columns: List[Dict[str, str]]
-    total_rows: int
-    execution_time: float
-
-
-class DatasetResponse(BaseModel):
-    """Dataset response model."""
-    id: str
-    workspace_id: str
-    name: str
-    description: Optional[str]
-    connector_type: str
-    status: str
-    schema_json: Optional[Dict[str, Any]]
-    row_count: Optional[int]
-    file_size: Optional[int]
-    created_at: str
-    updated_at: str
-
-
-# Removed - functionality moved to DatasetService
-
-
-# Dataset Routes (placeholder implementations)
-@router.get("/workspaces/{workspace_id}/datasets")
-async def list_datasets(
-    workspace_id: str,
-    current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_async_session)
-):
-    """List datasets in workspace."""
-    try:
-        datasets = await DatasetService.get_datasets_by_workspace(session, workspace_id)
-        return [dataset.to_dict() for dataset in datasets]
-    except Exception as e:
-        logger.error("Failed to list datasets", workspace_id=workspace_id, error=str(e))
-        # Return sample data as fallback
-        return [
-            {
-                "id": "sample-sales-dataset",
-                "workspace_id": workspace_id,
-                "name": "Sales Data",
-                "description": "Sample sales dataset with product, region, and sales data",
-                "connector_type": "csv",
-                "status": "ready",
-                "schema_json": {
-                    "tables": [{
-                        "name": "Sales Data",
-                        "displayName": "Sales Data",
-                        "columns": [
-                            {"name": "product", "type": "string", "nullable": False, "description": "Product name"},
-                            {"name": "region", "type": "string", "nullable": False, "description": "Sales region"},
-                            {"name": "sales_amount", "type": "decimal", "nullable": False, "description": "Sales amount"},
-                            {"name": "quantity", "type": "integer", "nullable": False, "description": "Quantity sold"},
-                            {"name": "date", "type": "date", "nullable": False, "description": "Sale date"},
-                            {"name": "customer_segment", "type": "string", "nullable": False, "description": "Customer segment"}
-                        ],
-                        "rowCount": 1000
-                    }]
-                },
-                "row_count": 1000,
-                "file_size": 45000,
-                "created_at": "2024-01-01T00:00:00Z",
-                "updated_at": "2024-01-01T00:00:00Z"
-            },
-            {
-                "id": "sample-customer-dataset", 
-                "workspace_id": workspace_id,
-                "name": "Customer Demographics",
-                "description": "Customer demographic and behavior data",
-                "connector_type": "csv",
-                "status": "ready",
-                "schema_json": {
-                    "tables": [{
-                        "name": "Customer Demographics",
-                        "displayName": "Customer Demographics",
-                        "columns": [
-                            {"name": "customer_id", "type": "string", "nullable": False, "description": "Customer ID"},
-                            {"name": "age", "type": "integer", "nullable": False, "description": "Customer age"},
-                            {"name": "gender", "type": "string", "nullable": False, "description": "Customer gender"},
-                            {"name": "city", "type": "string", "nullable": False, "description": "Customer city"},
-                            {"name": "subscription_type", "type": "string", "nullable": False, "description": "Subscription type"},
-                            {"name": "lifetime_value", "type": "decimal", "nullable": False, "description": "Customer lifetime value"}
-                        ],
-                        "rowCount": 500
-                    }]
-                },
-                "row_count": 500,
-                "file_size": 25000,
-                "created_at": "2024-01-01T00:00:00Z",
-                "updated_at": "2024-01-01T00:00:00Z"
-            }
-        ]
-
-
-@router.post("/workspaces/{workspace_id}/datasets")
-async def create_dataset(
-    workspace_id: str,
-    file: Optional[UploadFile] = File(None),
-    name: str = Form(...),
-    connector_type: Optional[str] = Form("csv"),
-    connection_config: Optional[str] = Form(None),
-    current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_async_session)
-):
-    """Create dataset from file upload or connector."""
-    try:
-        # Ensure workspace exists - create default workspace if needed
-        # Check workspace existence without loading relationships to avoid greenlet issues
-        stmt = select(Workspace).where(Workspace.id == workspace_id)
-        result = await session.execute(stmt)
-        workspace = result.scalar_one_or_none()
-
-        if not workspace:
-            logger.info(f"Workspace {workspace_id} not found, creating default workspace")
-            # Convert workspace_id to UUID if it's a string
-            try:
-                workspace_uuid = UUID(workspace_id) if isinstance(workspace_id, str) else workspace_id
-            except ValueError:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid workspace ID format: {workspace_id}"
-                )
-
-            # Create workspace and flush to database immediately
-            # This ensures it exists for foreign key validation when creating dataset
-            workspace = Workspace(
-                id=workspace_uuid,
-                name="My Workspace",
-                description="Default workspace",
-                owner_id=current_user.id,
-                is_public=False
-            )
-            session.add(workspace)
-            await session.flush()  # Flush workspace to DB without committing transaction
-            logger.info(f"Created default workspace {workspace_id}")
-
-        # Parse connector type
-        try:
-            connector_enum = ConnectorType(connector_type.lower())
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unsupported connector type: {connector_type}"
-            )
-        
-        # Handle file upload
-        file_content = None
-        if file:
-            # Validate file type for CSV uploads
-            if connector_enum == ConnectorType.CSV:
-                allowed_types = ["text/csv", "application/csv"]
-                if file.content_type not in allowed_types and not file.filename.endswith('.csv'):
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Please upload a CSV file for CSV connector type."
-                    )
-            
-            # Read file content
-            file_content = await file.read()
-            
-            # Validate file size (100MB limit)
-            max_size = 100 * 1024 * 1024  # 100MB
-            if len(file_content) > max_size:
-                raise HTTPException(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail="File too large. Maximum size is 100MB."
-                )
-        
-        # Parse connection config if provided
-        config = {}
-        if connection_config:
-            try:
-                import json
-                config = json.loads(connection_config)
-            except json.JSONDecodeError:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid connection configuration JSON"
-                )
-        
-        # Create dataset using service
-        dataset = await DatasetService.create_dataset(
-            session=session,
-            workspace_id=workspace_id,
-            name=name,
-            connector_type=connector_enum,
-            file_content=file_content,
-            connection_config=config
-        )
-        
-        logger.info(
-            "Dataset created successfully",
-            dataset_id=str(dataset.id),
-            workspace_id=workspace_id,
-            connector_type=connector_type,
-            user_id=str(current_user.id)
-        )
-        
-        return dataset.to_dict()
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Dataset creation failed", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Dataset creation failed: {str(e)}"
-        )
-
-
-@router.get("/{dataset_id}")
-async def get_dataset(
-    dataset_id: str,
-    current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_async_session)
-):
-    """Get dataset details."""
-    try:
-        from app.models.dataset import ConnectorType
-
-        dataset = await DatasetService.get_dataset_by_id(session, dataset_id)
-        if not dataset:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Dataset not found"
-            )
-
-        # For database connectors, fetch schema if not already cached
-        if dataset.connector_type in [
-            ConnectorType.POSTGRESQL,
-            ConnectorType.MYSQL,
-            ConnectorType.BIGQUERY,
-            ConnectorType.SNOWFLAKE
-        ]:
-            # Fetch and cache schema on first access
-            await DatasetService.fetch_and_cache_schema(session, dataset)
-
-        return dataset.to_dict()
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to get dataset", dataset_id=dataset_id, error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve dataset"
         )
 
 
@@ -385,7 +447,50 @@ async def query_dataset(
         )
 
 
-# Enhanced Data Source Management Endpoints
+@router.get("/{dataset_id}/preview")
+async def preview_dataset(
+    dataset_id: str,
+    limit: int = 100,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    """Get dataset preview with sample data."""
+    try:
+        result = await DatasetService.query_dataset(
+            session=session,
+            dataset_id=dataset_id,
+            query_params={"limit": limit}
+        )
+        return result
+    except Exception as e:
+        logger.error("Failed to preview dataset", dataset_id=dataset_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to preview dataset"
+        )
+
+
+@router.post("/{dataset_id}/refresh")
+async def refresh_dataset(
+    dataset_id: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session)
+):
+    """Refresh dataset data."""
+    try:
+        dataset = await DatasetService.refresh_dataset(session, dataset_id)
+        return dataset.to_dict()
+    except Exception as e:
+        logger.error("Failed to refresh dataset", dataset_id=dataset_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to refresh dataset"
+        )
+
+
+# ============================================================================
+# CONNECTOR UTILITY ENDPOINTS
+# ============================================================================
 
 @router.get("/connectors/types")
 async def get_supported_connector_types():
@@ -423,32 +528,23 @@ async def test_data_source_connection(
 ):
     """Test connection to a data source."""
     try:
-        # Extract connector_type and config from request body
         connector_type = request.get("connector_type")
         config = request.get("config")
 
-        if not connector_type:
+        if not connector_type or not config:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="connector_type is required"
+                detail="connector_type and config are required"
             )
 
-        if not config:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="config is required"
-            )
-
-        # Convert string to enum
         try:
             connector_enum = ConnectorType(connector_type)
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unsupported connector type: {connector_type}. Phase 1 supports: csv, excel, json, pdf, postgresql, mysql, mariadb"
+                detail=f"Unsupported connector type: {connector_type}"
             )
 
-        # Test connection
         result = await DataSourceManager.test_data_source(connector_enum, config)
 
         if result["success"]:
@@ -470,187 +566,8 @@ async def test_data_source_connection(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Connection test error", error=str(e), connector_type=connector_type)
+        logger.error("Connection test error", error=str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Connection test failed: {str(e)}"
-        )
-
-
-@router.post("/connectors/schema")
-async def get_data_source_schema(
-    request: Dict[str, Any] = Body(...),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Get database schema (tables and columns) after successful connection test.
-    This is step 2 in the new database connector flow.
-    """
-    try:
-        # Extract connector_type and config from request body
-        connector_type = request.get("connector_type")
-        config = request.get("config")
-
-        if not connector_type:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="connector_type is required"
-            )
-
-        if not config:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="config is required"
-            )
-
-        # Convert string to enum
-        try:
-            connector_enum = ConnectorType(connector_type)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unsupported connector type: {connector_type}"
-            )
-
-        # Only database connectors have schemas
-        if connector_enum not in [ConnectorType.POSTGRESQL, ConnectorType.MYSQL, ConnectorType.MARIADB]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Schema retrieval only supported for database connectors"
-            )
-
-        # Get schema
-        result = await DataSourceManager.get_data_source_schema(connector_enum, config)
-
-        if result["success"]:
-            logger.info(
-                "Schema retrieval successful",
-                connector_type=connector_type,
-                table_count=len(result.get("schema", {}).get("tables", [])),
-                user_id=str(current_user.id)
-            )
-            return result["schema"]
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=result.get("error", "Schema retrieval failed")
-            )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Schema retrieval error", error=str(e), connector_type=connector_type)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Schema retrieval failed: {str(e)}"
-        )
-
-
-@router.post("/connectors/preview")
-async def preview_data_source(
-    request: Dict[str, Any] = Body(...),
-    current_user: User = Depends(get_current_user)
-):
-    """Preview data from a data source."""
-    try:
-        # Extract parameters from request body
-        connector_type = request.get("connector_type")
-        config = request.get("config")
-        table_name = request.get("table_name")
-        limit = request.get("limit", 100)
-
-        if not connector_type:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="connector_type is required"
-            )
-
-        if not config:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="config is required"
-            )
-
-        # Convert string to enum
-        try:
-            connector_enum = ConnectorType(connector_type)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unsupported connector type: {connector_type}"
-            )
-
-        # Create connector and get sample data
-        connector = DataConnectorFactory.create_connector(connector_enum, config)
-        sample_data = await connector.get_sample_data(table_name, limit)
-        
-        logger.info(
-            "Data source preview retrieved successfully",
-            connector_type=connector_type,
-            table_name=table_name,
-            rows_count=len(sample_data),
-            user_id=str(current_user.id)
-        )
-        
-        return {
-            "success": True,
-            "data": sample_data,
-            "connector_type": connector_type,
-            "table_name": table_name,
-            "rows_count": len(sample_data),
-            "limit": limit,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Data preview error", connector_type=connector_type, error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Data preview failed: {str(e)}"
-        )
-
-
-@router.get("/{dataset_id}/export/pbids")
-async def export_dataset_as_pbids(
-    dataset_id: str,
-    current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_async_session)
-):
-    """Export dataset as PBIDS file for sharing and reuse."""
-    try:
-        # Get dataset
-        dataset = await DatasetService.get_dataset_by_id(session, dataset_id)
-        if not dataset:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Dataset not found"
-            )
-        
-        # Export as PBIDS
-        filename, file_content = await PBIDSManager.export_pbids_file(dataset, dataset.name)
-        
-        logger.info(
-            "Dataset exported as PBIDS",
-            dataset_id=dataset_id,
-            filename=filename,
-            user_id=str(current_user.id)
-        )
-        
-        return {
-            "success": True,
-            "filename": filename,
-            "content": file_content.decode('utf-8'),
-            "size": len(file_content),
-            "export_time": datetime.utcnow().isoformat()
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("PBIDS export failed", dataset_id=dataset_id, error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"PBIDS export failed: {str(e)}"
         )

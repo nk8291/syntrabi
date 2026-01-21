@@ -79,6 +79,9 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
   const [errorMessage, setErrorMessage] = useState<string>('')
   const [step, setStep] = useState<'select-source' | 'configure' | 'preview'>('select-source')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [showDbConfig, setShowDbConfig] = useState(false)
+const [dbConfig, setDbConfig] = useState<any | null>(null)
+
   // const [showSchemaBrowser, setShowSchemaBrowser] = useState(false) // Removed for Phase 1
 
   // Phase 1 Data Sources
@@ -231,47 +234,48 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
   // const handleSchemaImport = async (selectedTables) => { ... }
 
   const handleConnect = async () => {
-    if (!selectedSource) return
+  if (!selectedSource) return
 
+  // FILE FLOW — unchanged
+  if (selectedSource.category === 'file' && selectedFile) {
     setIsConnecting(true)
     try {
-      let datasetId: string | undefined
-
-      // Handle file upload
-      if (selectedSource.category === 'file' && selectedFile) {
-        const formData = new FormData()
-        formData.append('file', selectedFile)
-        formData.append('name', selectedFile.name)
-
-        const dataset = await datasetService.uploadDataset(workspaceId, selectedFile, selectedFile.name)
-        datasetId = dataset.id
-
-        onConnect(selectedSource, connectionConfig, connectionMode, datasetId)
-      }
-      // For database connections, create connection directly
-      else if (selectedSource.category === 'database') {
-        // Connection already tested, create dataset directly
-        const dataset = await datasetService.createDatabaseDataset(
-          workspaceId,
-          connectionConfig.database || `${selectedSource.name} Connection`,
-          selectedSource.type,
-          connectionConfig
-        )
-        datasetId = dataset.id
-
-        onConnect(selectedSource, connectionConfig, connectionMode, datasetId)
-      }
-    } catch (error: any) {
-      setConnectionStatus('error')
-      setErrorMessage(error.message || 'Connection failed')
+      const dataset = await datasetService.uploadDataset(
+        workspaceId,
+        selectedFile,
+        selectedFile.name
+      )
+      onConnect(selectedSource, connectionConfig, connectionMode, dataset.id)
     } finally {
       setIsConnecting(false)
     }
+    return
   }
+
+  // DATABASE FLOW — delegate
+  if (selectedSource.category === 'database') {
+    onConnect(
+      selectedSource,
+      {
+        host: connectionConfig.host,
+        port: connectionConfig.port,
+        database: connectionConfig.database,
+        username: connectionConfig.username,
+        password: connectionConfig.password,
+        ssl: connectionConfig.ssl_enabled
+      },
+      connectionMode
+    )
+    return
+  }
+
+}
+
 
   if (!isOpen) return null
 
   return (
+      <>
     <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
       <div className="relative top-10 mx-auto p-6 border w-11/12 max-w-6xl shadow-lg rounded-lg bg-white">
         {/* Header */}
@@ -557,8 +561,11 @@ const DataSourceConnector: React.FC<DataSourceConnectorProps> = ({
 
         {/* Schema Browser removed - Phase 1 uses direct connection without table selection */}
         {/* Future Phase 2: Re-enable schema browser for table selection */}
+
       </div>
     </div>
+   
+    </>
   )
 }
 
